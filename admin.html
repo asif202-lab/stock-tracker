@@ -307,9 +307,11 @@ async function saveEditIngredient(){
   const brand = state.brands[brandId];
   const name = document.getElementById('m_ingName').value.trim();
   const unit = document.getElementById('m_ingUnit').value.trim() || 'unit';
-  const purchaseUnit = document.getElementById('m_ingPUnit').value.trim() || unit;
-  const purchaseFactor = Number(document.getElementById('m_ingFactor').value) || 1;
+  const purchaseUnit = document.getElementById('m_ingPUnit').value.trim();
+  const purchaseFactorRaw = document.getElementById('m_ingFactor').value;
   if(!name){ setModalError('Enter an ingredient name.'); return; }
+  if(!purchaseUnit || purchaseFactorRaw===''){ setModalError('Enter the purchase unit and how many stock units it equals \u2014 don\'t leave this blank.'); return; }
+  const purchaseFactor = Number(purchaseFactorRaw);
   const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { name, unit, purchaseUnit, purchaseFactor }) : i);
   try{ await db.ref('brands/'+brandId+'/ingredients').set(ingredients); brand.ingredients = ingredients; }
   catch(e){ setModalError('Could not save. Try again.'); return; }
@@ -345,7 +347,7 @@ async function importBrandData(){
     if(!nameToId[key]){
       const id = genId();
       nameToId[key] = id;
-      ingredients.push({ id, name: ing.name, unit: ing.unit||'unit', purchaseUnit: ing.purchaseUnit||ing.unit||'unit', purchaseFactor: Number(ing.purchaseFactor)||1, createdAt: todayStr() });
+      ingredients.push({ id, name: ing.name, unit: ing.unit||'unit', purchaseUnit: ing.purchaseUnit || null, purchaseFactor: (ing.purchaseFactor!=null ? Number(ing.purchaseFactor) : null), createdAt: todayStr() });
     }
   }
 
@@ -486,8 +488,12 @@ function renderBrandsTab(){
     if(expanded){
       let ingRows = '';
       for(const ing of (brand.ingredients||[])){
-        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">tracked in '+escapeHtml(ing.unit)+' · bought as 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit)+'</div></div>'
-          + '<div class="item-row-actions"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'editIngredient\',brandId:\''+brandId+'\',ingredientId:\''+ing.id+'\',name:\''+escapeHtml(ing.name)+'\',unit:\''+escapeHtml(ing.unit)+'\',purchaseUnit:\''+escapeHtml(ing.purchaseUnit)+'\',purchaseFactor:'+ing.purchaseFactor+'})">Edit</button><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
+        const notSet = !ing.purchaseUnit || ing.purchaseFactor==null;
+        const metaLine = notSet
+          ? '<span style="color:var(--rust);">Purchase size not set</span>'
+          : 'tracked in '+escapeHtml(ing.unit)+' · bought as 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit);
+        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">'+metaLine+'</div></div>'
+          + '<div class="item-row-actions"><button class="btn btn-small '+(notSet?'btn-primary':'btn-ghost')+'" onclick="openModal({type:\'editIngredient\',brandId:\''+brandId+'\',ingredientId:\''+ing.id+'\',name:\''+escapeHtml(ing.name)+'\',unit:\''+escapeHtml(ing.unit)+'\',purchaseUnit:\''+escapeHtml(ing.purchaseUnit||'')+'\',purchaseFactor:\''+(ing.purchaseFactor!=null?ing.purchaseFactor:'')+'\'})">'+(notSet?'Set Purchase Size':'Edit')+'</button><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
       }
       if(!brand.ingredients || brand.ingredients.length===0) ingRows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No ingredients yet.</div>';
 
