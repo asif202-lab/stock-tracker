@@ -218,11 +218,13 @@ function renderForm(){
     purchaseHtml += '<div class="section-label">Purchases (Ingredients)</div>';
     for(const ing of ingredients){
       const v = state.purchaseValues[ing.id] || '';
-      const factor = ing.purchaseFactor || 1;
-      const preview = v ? '= ' + (Number(v)*factor).toLocaleString() + ' ' + ing.unit : '';
+      const sizeSet = ing.purchaseUnit && ing.purchaseFactor!=null;
+      const factor = sizeSet ? ing.purchaseFactor : 1;
+      const unitLabel = sizeSet ? ing.purchaseUnit : ing.unit;
+      const preview = (v && sizeSet) ? '= ' + (Number(v)*factor).toLocaleString() + ' ' + ing.unit : '';
       purchaseHtml += '<div class="item-card">'
-        + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(ing.name)+'</span><span class="item-card-unit">per '+escapeHtml(ing.purchaseUnit||ing.unit)+'</span></div>'
-        + '<div class="qty-field"><label>Purchased ('+escapeHtml(ing.purchaseUnit||ing.unit)+')</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v)+'" oninput="updatePurchase(\''+ing.id+'\',this.value);document.getElementById(\'prev_'+ing.id+'\').textContent=this.value?(\'= \'+(Number(this.value)*'+factor+').toLocaleString()+\' '+ing.unit+'\'):\'\'"></div>'
+        + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(ing.name)+'</span><span class="item-card-unit">per '+escapeHtml(unitLabel)+'</span></div>'
+        + '<div class="qty-field"><label>Purchased ('+escapeHtml(unitLabel)+')</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v)+'" oninput="updatePurchase(\''+ing.id+'\',this.value);'+(sizeSet?('document.getElementById(\'prev_'+ing.id+'\').textContent=this.value?(\'= \'+(Number(this.value)*'+factor+').toLocaleString()+\' '+ing.unit+'\'):\'\''):'')+'"></div>'
         + '<div class="purchase-preview" id="prev_'+ing.id+'">'+preview+'</div>'
         + '</div>';
     }
