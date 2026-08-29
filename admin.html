@@ -302,6 +302,20 @@ async function saveNewIngredient(){
   state.modal = null; render();
 }
 
+async function saveEditIngredient(){
+  const { brandId, ingredientId } = state.modal;
+  const brand = state.brands[brandId];
+  const name = document.getElementById('m_ingName').value.trim();
+  const unit = document.getElementById('m_ingUnit').value.trim() || 'unit';
+  const purchaseUnit = document.getElementById('m_ingPUnit').value.trim() || unit;
+  const purchaseFactor = Number(document.getElementById('m_ingFactor').value) || 1;
+  if(!name){ setModalError('Enter an ingredient name.'); return; }
+  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { name, unit, purchaseUnit, purchaseFactor }) : i);
+  try{ await db.ref('brands/'+brandId+'/ingredients').set(ingredients); brand.ingredients = ingredients; }
+  catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; state.data = null; render();
+}
+
 async function deleteIngredient(brandId, ingId){
   const brand = state.brands[brandId];
   const ingredients = (brand.ingredients||[]).filter(i=>i.id!==ingId);
@@ -472,8 +486,8 @@ function renderBrandsTab(){
     if(expanded){
       let ingRows = '';
       for(const ing of (brand.ingredients||[])){
-        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">'+escapeHtml(ing.unit)+' · 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit)+'</div></div>'
-          + '<div class="item-row-actions"><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
+        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">tracked in '+escapeHtml(ing.unit)+' · bought as 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit)+'</div></div>'
+          + '<div class="item-row-actions"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'editIngredient\',brandId:\''+brandId+'\',ingredientId:\''+ing.id+'\',name:\''+escapeHtml(ing.name)+'\',unit:\''+escapeHtml(ing.unit)+'\',purchaseUnit:\''+escapeHtml(ing.purchaseUnit)+'\',purchaseFactor:'+ing.purchaseFactor+'})">Edit</button><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
       }
       if(!brand.ingredients || brand.ingredients.length===0) ingRows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No ingredients yet.</div>';
 
@@ -551,6 +565,14 @@ function renderModal(){
       + '<div class="form-field"><label>1 Purchase Unit = how many Stock Units</label><input id="m_ingFactor" type="number" inputmode="decimal" placeholder="e.g. 4.5"></div>'
       + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
       + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNewIngredient()">Add Ingredient</button></div>';
+  } else if(m.type==='editIngredient'){
+    inner = '<h2>Edit Ingredient</h2><p class="sub">Fix the actual size you buy this in \u2014 e.g. if a bottle is really 750ml, change it here.</p>'
+      + '<div class="form-field"><label>Ingredient Name</label><input id="m_ingName" type="text" value="'+m.name+'"></div>'
+      + '<div class="form-field"><label>Stock Unit</label><input id="m_ingUnit" type="text" value="'+m.unit+'"></div>'
+      + '<div class="form-field"><label>Purchase Unit</label><input id="m_ingPUnit" type="text" value="'+m.purchaseUnit+'"></div>'
+      + '<div class="form-field"><label>1 Purchase Unit = how many Stock Units</label><input id="m_ingFactor" type="number" inputmode="decimal" value="'+m.purchaseFactor+'"></div>'
+      + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
+      + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEditIngredient()">Save Changes</button></div>';
   } else if(m.type==='importJson'){
     wide = true;
     inner = '<h2>Import Recipes</h2><p class="sub">Paste the JSON Claude generates from your recipe sheet. This adds new ingredients/products and updates existing ones by matching names.</p>'
