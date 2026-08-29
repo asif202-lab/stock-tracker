@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+:root{
+  --bg:#12161C; --panel:#1B212B; --panel-2:#212A37; --border:#2B3441; --border-soft:#242C38;
+  --text:#EDEEF0; --muted:#8B93A1; --muted-2:#5C6472;
+  --amber:#E8A33D; --teal:#4FB6A6; --teal-dim:#1C3934; --rust:#D96A5A; --rust-dim:#3D2321;
+  --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;-webkit-font-smoothing:antialiased;}
+#app{min-height:100vh;}
+button{font-family:inherit;cursor:pointer;}
+input,select{font-family:inherit;}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.center-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:36px 32px;width:100%;max-width:420px;}
+h1{font-family:var(--font-display);font-size:26px;margin:0;letter-spacing:-0.02em;}
+h2{font-family:var(--font-display);font-size:21px;margin:0 0 4px 0;}
+.sub{color:var(--muted);font-size:14px;margin:0 0 24px 0;line-height:1.5;}
+.btn{border-radius:10px;border:1px solid var(--border);padding:13px 20px;font-size:15px;font-weight:600;background:var(--panel-2);color:var(--text);transition:background .15s;}
+.btn:hover{background:#283040;}
+.btn-primary{background:var(--amber);border-color:var(--amber);color:#1A1206;}
+.btn-primary:hover{background:#f0ad4d;}
+.btn-ghost{background:transparent;}
+.btn-large{width:100%;padding:15px;font-size:15.5px;}
+.btn-small{padding:7px 12px;font-size:13px;border-radius:8px;}
+.btn-danger{color:var(--rust);border-color:var(--rust-dim);background:var(--rust-dim);}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.pin-input{width:100%;padding:14px;font-size:22px;letter-spacing:6px;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);margin-bottom:14px;font-family:var(--font-mono);}
+.text-input{width:100%;padding:12px;font-size:15px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);margin-bottom:12px;}
+.error-text{color:var(--rust);font-size:13px;margin:-6px 0 14px 0;}
+.success-text{color:var(--teal);font-size:13px;margin:8px 0;}
+.outlet-shell{max-width:640px;margin:0 auto;padding:20px 16px 80px;}
+.outlet-topbar{display:flex;justify-content:space-between;align-items:center;padding:8px 4px 20px;}
+.outlet-name{font-family:var(--font-display);font-size:19px;}
+.outlet-date{color:var(--muted);font-size:13px;font-family:var(--font-mono);}
+.item-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;}
+.item-card-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;}
+.item-card-name{font-weight:600;font-size:15px;}
+.item-card-unit{color:var(--muted-2);font-size:12px;}
+.qty-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.qty-field label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;}
+.qty-field input{width:100%;padding:12px;font-size:17px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:var(--font-mono);}
+.qty-field input:focus{border-color:var(--amber);}
+.submit-bar{position:sticky;bottom:0;background:linear-gradient(to top,var(--bg) 60%,transparent);padding:16px 0 0;}
+.banner{background:var(--teal-dim);border:1px solid #2b5850;color:var(--teal);padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:16px;}
+.confirm-wrap{text-align:center;padding-top:60px;}
+.confirm-check{font-size:48px;color:var(--teal);margin-bottom:12px;}
+.admin-shell{max-width:1080px;margin:0 auto;padding:20px 20px 60px;}
+.admin-topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+.admin-title{font-family:var(--font-display);font-size:20px;}
+.tabs{display:flex;gap:4px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:20px;width:fit-content;}
+.tab-btn{background:transparent;border:none;padding:9px 16px;border-radius:7px;color:var(--muted);font-size:13.5px;font-weight:600;}
+.tab-btn.active{background:var(--amber);color:#1A1206;}
+.status-strip{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:18px;}
+.status-strip-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.status-strip-title{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;}
+.status-strip-count{font-family:var(--font-mono);font-size:13px;color:var(--muted);}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12.5px;border:1px solid var(--border);background:var(--panel-2);}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.dot-ok{background:var(--teal);} .dot-pending{background:var(--rust);}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:18px;}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;}
+.field select,.field input[type=date]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:13.5px;}
+.summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
+.summary-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+.summary-card .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+.summary-card .value{font-family:var(--font-mono);font-size:22px;font-weight:600;}
+.outlet-group{background:var(--panel);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;overflow:hidden;}
+.outlet-group-head{padding:13px 18px;border-bottom:1px solid var(--border-soft);font-weight:600;font-size:14px;}
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+th{text-align:left;padding:10px 18px;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;border-bottom:1px solid var(--border-soft);white-space:nowrap;}
+td{padding:11px 18px;border-bottom:1px solid var(--border-soft);white-space:nowrap;font-family:var(--font-mono);}
+td.name-col{font-family:var(--font-body);white-space:normal;}
+tr:last-child td{border-bottom:none;}
+.stock-neg{color:var(--rust);}
+.empty-state{color:var(--muted);text-align:center;padding:50px 20px;font-size:14px;}
+.outlet-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;margin-bottom:12px;overflow:hidden;}
+.outlet-card-head{padding:16px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+.outlet-card-info .name{font-weight:600;font-size:15px;}
+.outlet-card-info .meta{color:var(--muted-2);font-size:12px;font-family:var(--font-mono);margin-top:2px;}
+.outlet-card-actions{display:flex;gap:8px;}
+.items-panel{border-top:1px solid var(--border-soft);padding:14px 18px;background:var(--bg);}
+.item-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border-soft);gap:10px;flex-wrap:wrap;}
+.item-row:last-child{border-bottom:none;}
+.item-row .iname{font-weight:500;font-size:13.5px;}
+.item-row .imeta{color:var(--muted);font-size:12px;font-family:var(--font-mono);}
+.item-row-actions{display:flex;gap:6px;}
+.section-title{font-family:var(--font-display);font-size:16px;margin:0 0 12px;}
+.modal-overlay{position:fixed;inset:0;background:rgba(8,10,14,.72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:26px;width:100%;max-width:400px;}
+.form-field{margin-bottom:14px;}
+.form-field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;}
+.form-field input{width:100%;padding:11px 12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:14.5px;}
+.modal-actions{display:flex;gap:10px;margin-top:20px;}
+.modal-actions .btn{flex:1;}
+.apply-row{display:flex;align-items:flex-end;}
+.spinner-text{color:var(--muted);font-size:13.5px;padding:30px;text-align:center;}
+@media (prefers-reduced-motion: reduce){*{transition:none !important;}}
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyD6PTSf3sC-ZtOgUujLrNhYExBq_7lFgJQ",
+  authDomain: "inventory-65a2c.firebaseapp.com",
+  databaseURL: "https://inventory-65a2c-default-rtdb.firebaseio.com",
+  projectId: "inventory-65a2c",
+  storageBucket: "inventory-65a2c.firebasestorage.app",
+  messagingSenderId: "702447876159",
+  appId: "1:702447876159:web:f888ace2ef5037f86fa08a"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function addDays(dateStr,n){ const [y,m,d]=dateStr.split('-').map(Number); const dt=new Date(y,m-1,d); dt.setDate(dt.getDate()+n); return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let state = {
+  loading: true,
+  config: {},
+  today: todayStr(),
+  filter: { outletId:'all', startDate: addDays(todayStr(),-6), endDate: todayStr() },
+  data: null,
+  statusToday: new Set(),
+};
+
+async function init(){
+  const snap = await db.ref('config').once('value');
+  state.config = snap.val() || {};
+  state.loading = false;
+  render();
+  await refreshStatus();
+  await loadData();
+  setInterval(refreshStatus, 60000);
+}
+
+async function refreshStatus(){
+  const ids = Object.keys(state.config);
+  const results = await Promise.all(ids.map(id => db.ref('entries/'+id+'/'+state.today).once('value').then(s=>({id, exists: s.exists()}))));
+  state.statusToday = new Set(results.filter(r=>r.exists).map(r=>r.id));
+  render();
+}
+
+function setFilter(field, val){ state.filter[field] = val; }
+
+async function loadData(){
+  state.loading = true; state.data = null; render();
+  const outletIds = state.filter.outletId==='all' ? Object.keys(state.config) : [state.filter.outletId];
+  const results = [];
+  for(const outletId of outletIds){
+    const outlet = state.config[outletId];
+    if(!outlet || !outlet.items) continue;
+    let earliestBaseline = null;
+    for(const it of outlet.items){ if(earliestBaseline===null || it.baselineDate < earliestBaseline) earliestBaseline = it.baselineDate; }
+    if(earliestBaseline===null) continue;
+    const fetchStart = earliestBaseline < state.filter.startDate ? earliestBaseline : state.filter.startDate;
+    const snap = await db.ref('entries/'+outletId).orderByKey().startAt(fetchStart).endAt(state.filter.endDate).once('value');
+    const byDate = snap.val() || {};
+    const perItem = {};
+    for(const it of outlet.items) perItem[it.id] = {cumSold:0,cumPurchased:0,rangeSold:0,rangePurchased:0};
+    for(const date in byDate){
+      const dayItems = byDate[date].items || {};
+      for(const itemId in dayItems){
+        const item = outlet.items.find(i=>i.id===itemId);
+        if(!item || date < item.baselineDate) continue;
+        const v = dayItems[itemId];
+        perItem[itemId].cumSold += v.sold||0;
+        perItem[itemId].cumPurchased += v.purchased||0;
+        if(date >= state.filter.startDate && date <= state.filter.endDate){
+          perItem[itemId].rangeSold += v.sold||0;
+          perItem[itemId].rangePurchased += v.purchased||0;
+        }
+      }
+    }
+    for(const item of outlet.items){
+      const p = perItem[item.id];
+      results.push({
+        outletId, outletName: outlet.name, itemId: item.id, itemName: item.name, unit: item.unit,
+        opening: item.opening, baselineDate: item.baselineDate,
+        rangeSold: p.rangeSold, rangePurchased: p.rangePurchased,
+        stockLeft: item.opening + p.cumPurchased - p.cumSold,
+      });
+    }
+  }
+  state.data = results;
+  state.loading = false;
+  render();
+}
+
+function render(){
+  const app = document.getElementById('app');
+  if(state.loading && !state.data){ app.innerHTML = '<div class="center-wrap"><div class="spinner-text">Loading…</div></div>'; return; }
+
+  const outletIds = Object.keys(state.config);
+  const total = outletIds.length;
+  const submitted = state.statusToday.size;
+  let chips = '';
+  for(const id of outletIds){
+    const ok = state.statusToday.has(id);
+    chips += '<span class="chip"><span class="dot '+(ok?'dot-ok':'dot-pending')+'"></span>'+escapeHtml(state.config[id].name)+'</span>';
+  }
+  if(total===0) chips = '<span style="color:var(--muted-2);font-size:13px;">No outlets set up yet.</span>';
+
+  let outletOptions = '<option value="all">All Outlets</option>';
+  for(const id of outletIds) outletOptions += '<option value="'+id+'" '+(state.filter.outletId===id?'selected':'')+'>'+escapeHtml(state.config[id].name)+'</option>';
+
+  const statusStrip = '<div class="status-strip"><div class="status-strip-head"><span class="status-strip-title">Today\'s Submissions</span><span class="status-strip-count">'+submitted+' / '+total+'</span></div><div class="chip-row">'+chips+'</div></div>';
+
+  const filters = '<div class="filters">'
+    + '<div class="field"><label>Outlet</label><select onchange="setFilter(\'outletId\',this.value)">'+outletOptions+'</select></div>'
+    + '<div class="field"><label>From</label><input type="date" value="'+state.filter.startDate+'" onchange="setFilter(\'startDate\',this.value)"></div>'
+    + '<div class="field"><label>To</label><input type="date" value="'+state.filter.endDate+'" onchange="setFilter(\'endDate\',this.value)"></div>'
+    + '<div class="field apply-row"><button class="btn btn-primary btn-small" onclick="loadData()">Apply</button></div>'
+    + '</div>';
+
+  let resultsHtml = '';
+  if(state.loading){
+    resultsHtml = '<div class="spinner-text">Crunching the numbers…</div>';
+  } else if(!state.data || state.data.length===0){
+    resultsHtml = '<div class="empty-state">No data for this selection yet.</div>';
+  } else {
+    let totalSold=0, totalPurchased=0;
+    for(const r of state.data){ totalSold += r.rangeSold; totalPurchased += r.rangePurchased; }
+    const summary = '<div class="summary-cards">'
+      + '<div class="summary-card"><div class="label">Total Sold</div><div class="value">'+totalSold.toLocaleString()+'</div></div>'
+      + '<div class="summary-card"><div class="label">Total Purchased</div><div class="value">'+totalPurchased.toLocaleString()+'</div></div>'
+      + '<div class="summary-card"><div class="label">Outlets in view</div><div class="value">'+new Set(state.data.map(r=>r.outletId)).size+'</div></div>'
+      + '</div>';
+    const byOutlet = {};
+    for(const r of state.data){ (byOutlet[r.outletId]=byOutlet[r.outletId]||[]).push(r); }
+    let groups = '';
+    for(const outletId in byOutlet){
+      const rows = byOutlet[outletId];
+      let trs = '';
+      for(const r of rows){
+        trs += '<tr><td class="name-col">'+escapeHtml(r.itemName)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>';
+      }
+      groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(rows[0].outletName)+'</div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Unit</th><th>Sold</th><th>Purchased</th><th>Stock Left</th></tr></thead><tbody>'+trs+'</tbody></table></div></div>';
+    }
+    resultsHtml = summary + groups;
+  }
+
+  app.innerHTML = '<div class="admin-shell"><div class="admin-topbar"><div class="admin-title">Stock Dashboard</div></div>' + statusStrip + filters + resultsHtml + '</div>';
+}
+
+init();
+</script>
+</body>
+</html>
