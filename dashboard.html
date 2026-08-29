@@ -228,7 +228,9 @@ async function loadData(){
         if(!info) continue;
         for(const line of info.recipe){
           if(!ingAgg[line.ingredientId]) continue;
-          const deduct = soldCount * (line.qty||0);
+          const ingObj = ingredients.find(i=>i.id===line.ingredientId);
+          const recipeFactor = (ingObj && ingObj.recipeUnitFactor!=null) ? ingObj.recipeUnitFactor : 1;
+          const deduct = soldCount * (line.qty||0) * recipeFactor;
           ingAgg[line.ingredientId].cumSold += deduct;
           if(inRange) ingAgg[line.ingredientId].rangeSold += deduct;
         }
