@@ -135,6 +135,8 @@ let state = {
   screen: 'login',
   outletId: null,
   outlet: null,
+  brand: null,
+  items: [],
   today: todayStr(),
   formValues: {},
   alreadySubmitted: false,
@@ -174,10 +176,16 @@ async function submitLogin(){
     }
     state.outlet = snap.val();
     state.outletId = pin;
-    if(!state.outlet.items || state.outlet.items.length===0){
-      state.error = 'Your outlet has no items set up yet. Ask admin to add items first.';
+
+    const brandSnap = await db.ref('brands/'+state.outlet.brandId).once('value');
+    state.brand = brandSnap.val();
+    const brandItems = (state.brand && state.brand.items) ? state.brand.items : [];
+    if(brandItems.length===0){
+      state.error = 'No items set up for your brand yet. Ask admin to add items first.';
       state.screen='login'; render(); return;
     }
+    state.items = brandItems;
+
     const entrySnap = await db.ref('entries/'+pin+'/'+state.today).once('value');
     state.formValues = {};
     state.alreadySubmitted = false;
@@ -206,7 +214,7 @@ function updateFormValue(itemId, field, value){
 
 function renderForm(){
   let itemsHtml = '';
-  for(const item of state.outlet.items){
+  for(const item of state.items){
     const v = state.formValues[item.id] || {sold:'', purchased:''};
     itemsHtml += '<div class="item-card">'
       + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(item.name)+'</span><span class="item-card-unit">'+escapeHtml(item.unit)+'</span></div>'
@@ -227,7 +235,7 @@ function renderForm(){
 
 async function submitEntry(){
   const items = {};
-  for(const item of state.outlet.items){
+  for(const item of state.items){
     const v = state.formValues[item.id] || {};
     items[item.id] = { sold: Number(v.sold)||0, purchased: Number(v.purchased)||0 };
   }
@@ -255,7 +263,7 @@ function renderConfirm(){
 }
 
 function logout(){
-  state.outletId = null; state.outlet = null; state.formValues = {}; state.error='';
+  state.outletId = null; state.outlet = null; state.brand = null; state.items = []; state.formValues = {}; state.error='';
   state.screen = 'login';
   render();
 }
