@@ -246,7 +246,9 @@ async function loadData(){
         if(!info) continue;
         for(const line of info.recipe){
           if(!ingAgg[line.ingredientId]) continue;
-          const deduct = soldCount * (line.qty||0);
+          const ingObj = ingredients.find(i=>i.id===line.ingredientId);
+          const recipeFactor = (ingObj && ingObj.recipeUnitFactor!=null) ? ingObj.recipeUnitFactor : 1;
+          const deduct = soldCount * (line.qty||0) * recipeFactor;
           ingAgg[line.ingredientId].cumSold += deduct;
           if(inRange) ingAgg[line.ingredientId].rangeSold += deduct;
         }
@@ -310,16 +312,32 @@ async function saveInlinePurchaseSize(brandId, ingredientId){
   const suEl = document.getElementById('su_'+ingredientId);
   const puEl = document.getElementById('pu_'+ingredientId);
   const pfEl = document.getElementById('pf_'+ingredientId);
+  const ruEl = document.getElementById('ru_'+ingredientId);
+  const rfEl = document.getElementById('rf_'+ingredientId);
   const unit = suEl.value;
   const purchaseUnit = puEl.value.trim();
   const purchaseFactorRaw = pfEl.value;
+  const recipeUnit = ruEl.value.trim();
+  const recipeFactorRaw = rfEl.value;
+
   if(!purchaseUnit || purchaseFactorRaw===''){
-    state.inlineErrors[ingredientId] = 'Enter both the unit name and the quantity.';
+    state.inlineErrors[ingredientId] = 'Enter both the purchase unit and the quantity.';
+    render(); return;
+  }
+  if((recipeUnit && recipeFactorRaw==='') || (!recipeUnit && recipeFactorRaw!=='')){
+    state.inlineErrors[ingredientId] = 'Enter both the recipe unit and the quantity, or leave both blank.';
     render(); return;
   }
   delete state.inlineErrors[ingredientId];
   const brand = state.brands[brandId];
-  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { unit, purchaseUnit, purchaseFactor: Number(purchaseFactorRaw) }) : i);
+  const updates = {
+    unit,
+    purchaseUnit,
+    purchaseFactor: Number(purchaseFactorRaw),
+    recipeUnit: recipeUnit || unit,
+    recipeUnitFactor: recipeUnit ? Number(recipeFactorRaw) : 1,
+  };
+  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, updates) : i);
   try{
     await db.ref('brands/'+brandId+'/ingredients').set(ingredients);
     brand.ingredients = ingredients;
@@ -516,18 +534,27 @@ function renderBrandsTab(){
       for(const ing of (brand.ingredients||[])){
         const pu = ing.purchaseUnit || '';
         const pf = ing.purchaseFactor!=null ? ing.purchaseFactor : '';
+        const ru = ing.recipeUnit || '';
+        const rf = ing.recipeUnitFactor!=null ? ing.recipeUnitFactor : '';
         const err = state.inlineErrors[ing.id];
         const uomOptions = ['g','kg','ml','ltr','pc'].map(u => '<option value="'+u+'" '+(ing.unit===u?'selected':'')+'>'+u+'</option>').join('');
         ingRows += '<div class="item-row" style="flex-direction:column;align-items:stretch;gap:8px;">'
           + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><div class="iname">'+escapeHtml(ing.name)+'</div>'
-          + '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;color:var(--muted);">Stock Unit</span><select class="inline-input" style="width:80px;" id="su_'+ing.id+'" onchange="document.getElementById(\'unitlbl_'+ing.id+'\').textContent=this.value">'+uomOptions+'</select>'
+          + '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;color:var(--muted);">Stock Unit</span><select class="inline-input" style="width:80px;" id="su_'+ing.id+'" onchange="document.getElementById(\'unitlbl_'+ing.id+'\').textContent=this.value;document.getElementById(\'unitlbl2_'+ing.id+'\').textContent=this.value;">'+uomOptions+'</select>'
           + '<button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>'
           + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-          + '<span style="font-size:12px;color:var(--muted);">Purchased as: 1</span>'
+          + '<span style="font-size:12px;color:var(--muted);width:110px;">Purchased as: 1</span>'
           + '<input class="inline-input" id="pu_'+ing.id+'" placeholder="e.g. Bottle" value="'+escapeHtml(pu)+'">'
           + '<span style="font-size:12px;color:var(--muted);">=</span>'
           + '<input class="inline-input" type="number" inputmode="decimal" id="pf_'+ing.id+'" placeholder="e.g. 750" value="'+pf+'" style="width:80px;">'
           + '<span style="font-size:12px;color:var(--muted);" id="unitlbl_'+ing.id+'">'+escapeHtml(ing.unit)+'</span>'
+          + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+          + '<span style="font-size:12px;color:var(--muted);width:110px;">Recipe counts in: 1</span>'
+          + '<input class="inline-input" id="ru_'+ing.id+'" placeholder="e.g. pc" value="'+escapeHtml(ru)+'">'
+          + '<span style="font-size:12px;color:var(--muted);">=</span>'
+          + '<input class="inline-input" type="number" inputmode="decimal" id="rf_'+ing.id+'" placeholder="e.g. 8" value="'+rf+'" style="width:80px;">'
+          + '<span style="font-size:12px;color:var(--muted);" id="unitlbl2_'+ing.id+'">'+escapeHtml(ing.unit)+'</span>'
           + '<button class="btn btn-small btn-primary" onclick="saveInlinePurchaseSize(\''+brandId+'\',\''+ing.id+'\')">Save</button>'
           + '</div>'
           + (err ? '<div class="error-text" style="margin:0;">'+escapeHtml(err)+'</div>' : '')
@@ -544,7 +571,8 @@ function renderBrandsTab(){
             let lineItems = '';
             for(const r of (v.recipe||[])){
               const ing = (brand.ingredients||[]).find(i=>i.id===r.ingredientId);
-              lineItems += '<div style="display:flex;justify-content:space-between;padding:3px 0 3px 14px;font-size:12.5px;"><span style="color:var(--muted);">'+escapeHtml(ing?ing.name:'(deleted ingredient)')+'</span><span class="ingredient-qty">'+r.qty+' '+escapeHtml(ing?ing.unit:'')+'</span></div>';
+              const displayUnit = ing ? (ing.recipeUnit || ing.unit) : '';
+              lineItems += '<div style="display:flex;justify-content:space-between;padding:3px 0 3px 14px;font-size:12.5px;"><span style="color:var(--muted);">'+escapeHtml(ing?ing.name:'(deleted ingredient)')+'</span><span class="ingredient-qty">'+r.qty+' '+escapeHtml(displayUnit)+'</span></div>';
             }
             variantLines += '<div style="padding:8px 0 4px;"><b style="color:var(--text);font-size:13px;">'+escapeHtml(v.name)+'</b>'+lineItems+'</div>';
           }
