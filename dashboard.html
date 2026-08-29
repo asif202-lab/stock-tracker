@@ -141,13 +141,23 @@ let state = {
   statusToday: new Set(),
 };
 
-function outletItems(outlet){
+function ingredientsOf(outlet){
   const brand = state.brands[outlet.brandId];
-  return (brand && brand.items) ? brand.items : [];
+  return (brand && brand.ingredients) ? brand.ingredients : [];
 }
-function itemStockFor(outlet, itemId, itemCreatedAt){
-  const s = (outlet.itemStock && outlet.itemStock[itemId]) ? outlet.itemStock[itemId] : null;
-  return s || { opening: 0, baselineDate: itemCreatedAt || '2000-01-01' };
+function stockFor(outlet, ingredientId, createdAt){
+  const s = (outlet.itemStock && outlet.itemStock[ingredientId]) ? outlet.itemStock[ingredientId] : null;
+  return s || { opening: 0, baselineDate: createdAt || '2000-01-01' };
+}
+// map variantId -> {productName, variantName, recipe:[{ingredientId,qty}]}
+function variantIndex(brand){
+  const idx = {};
+  for(const prod of (brand.products||[])){
+    for(const v of (prod.variants||[])){
+      idx[v.id] = { productName: prod.name, variantName: v.name, recipe: v.recipe||[] };
+    }
+  }
+  return idx;
 }
 
 async function init(){
@@ -174,53 +184,74 @@ async function refreshStatus(){
 function setFilter(field, val){ state.filter[field] = val; }
 
 async function loadData(){
-  state.loading = true; state.data = null; render();
+  state.loading = true; state.data = null; state.productData = null; render();
   const outletIds = state.filter.outletId==='all' ? Object.keys(state.config) : [state.filter.outletId];
-  const results = [];
+  const ingredientResults = [];
+  const productResults = [];
   for(const outletId of outletIds){
     const outlet = state.config[outletId];
     if(!outlet) continue;
-    const items = outletItems(outlet);
-    if(items.length===0) continue;
+    const brand = state.brands[outlet.brandId] || {ingredients:[],products:[]};
+    const ingredients = ingredientsOf(outlet);
+    if(ingredients.length===0 && (brand.products||[]).length===0) continue;
+    const vIdx = variantIndex(brand);
+
     let earliestBaseline = null;
-    for(const it of items){
-      const s = itemStockFor(outlet, it.id, it.createdAt);
+    for(const ing of ingredients){
+      const s = stockFor(outlet, ing.id, ing.createdAt);
       if(earliestBaseline===null || s.baselineDate < earliestBaseline) earliestBaseline = s.baselineDate;
     }
-    if(earliestBaseline===null) continue;
+    if(earliestBaseline===null) earliestBaseline = state.filter.startDate;
     const fetchStart = earliestBaseline < state.filter.startDate ? earliestBaseline : state.filter.startDate;
+
     const snap = await db.ref('entries/'+outletId).orderByKey().startAt(fetchStart).endAt(state.filter.endDate).once('value');
     const byDate = snap.val() || {};
-    const perItem = {};
-    for(const it of items) perItem[it.id] = {cumSold:0,cumPurchased:0,rangeSold:0,rangePurchased:0};
+
+    const ingAgg = {}; // id -> {cumPurchased,cumSold,rangePurchased,rangeSold}
+    for(const ing of ingredients) ingAgg[ing.id] = {cumPurchased:0,cumSold:0,rangePurchased:0,rangeSold:0};
+    const prodAgg = {}; // variantId -> rangeSoldCount
+
     for(const date in byDate){
-      const dayItems = byDate[date].items || {};
-      for(const itemId in dayItems){
-        const item = items.find(i=>i.id===itemId);
-        if(!item) continue;
-        const s = itemStockFor(outlet, itemId, item.createdAt);
-        if(date < s.baselineDate) continue;
-        const v = dayItems[itemId];
-        perItem[itemId].cumSold += v.sold||0;
-        perItem[itemId].cumPurchased += v.purchased||0;
-        if(date >= state.filter.startDate && date <= state.filter.endDate){
-          perItem[itemId].rangeSold += v.sold||0;
-          perItem[itemId].rangePurchased += v.purchased||0;
+      const day = byDate[date];
+      const inRange = date >= state.filter.startDate && date <= state.filter.endDate;
+      for(const ingId in (day.purchases||{})){
+        if(!ingAgg[ingId]) continue;
+        const factor = (ingredients.find(i=>i.id===ingId)||{}).purchaseFactor || 1;
+        const baseQty = (day.purchases[ingId]||0) * factor;
+        ingAgg[ingId].cumPurchased += baseQty;
+        if(inRange) ingAgg[ingId].rangePurchased += baseQty;
+      }
+      for(const variantId in (day.sales||{})){
+        const soldCount = day.sales[variantId]||0;
+        if(inRange) prodAgg[variantId] = (prodAgg[variantId]||0) + soldCount;
+        const info = vIdx[variantId];
+        if(!info) continue;
+        for(const line of info.recipe){
+          if(!ingAgg[line.ingredientId]) continue;
+          const deduct = soldCount * (line.qty||0);
+          ingAgg[line.ingredientId].cumSold += deduct;
+          if(inRange) ingAgg[line.ingredientId].rangeSold += deduct;
         }
       }
     }
-    for(const item of items){
-      const s = itemStockFor(outlet, item.id, item.createdAt);
-      const p = perItem[item.id];
-      results.push({
-        outletId, outletName: outlet.name, itemId: item.id, itemName: item.name, unit: item.unit,
+
+    for(const ing of ingredients){
+      const s = stockFor(outlet, ing.id, ing.createdAt);
+      const a = ingAgg[ing.id];
+      ingredientResults.push({
+        outletId, outletName: outlet.name, ingredientId: ing.id, name: ing.name, unit: ing.unit,
         opening: s.opening, baselineDate: s.baselineDate,
-        rangeSold: p.rangeSold, rangePurchased: p.rangePurchased,
-        stockLeft: s.opening + p.cumPurchased - p.cumSold,
+        rangePurchased: a.rangePurchased, rangeSold: a.rangeSold,
+        stockLeft: s.opening + a.cumPurchased - a.cumSold,
       });
     }
+    for(const variantId in vIdx){
+      if(!prodAgg[variantId]) continue;
+      productResults.push({ outletId, outletName: outlet.name, label: vIdx[variantId].productName+' — '+vIdx[variantId].variantName, soldCount: prodAgg[variantId] });
+    }
   }
-  state.data = results;
+  state.data = ingredientResults;
+  state.productData = productResults;
   state.loading = false;
   render();
 }
@@ -254,28 +285,32 @@ function render(){
   let resultsHtml = '';
   if(state.loading){
     resultsHtml = '<div class="spinner-text">Crunching the numbers…</div>';
-  } else if(!state.data || state.data.length===0){
+  } else if((!state.data || state.data.length===0) && (!state.productData || state.productData.length===0)){
     resultsHtml = '<div class="empty-state">No data for this selection yet.</div>';
   } else {
-    let totalSold=0, totalPurchased=0;
-    for(const r of state.data){ totalSold += r.rangeSold; totalPurchased += r.rangePurchased; }
-    const summary = '<div class="summary-cards">'
-      + '<div class="summary-card"><div class="label">Total Sold</div><div class="value">'+totalSold.toLocaleString()+'</div></div>'
-      + '<div class="summary-card"><div class="label">Total Purchased</div><div class="value">'+totalPurchased.toLocaleString()+'</div></div>'
-      + '<div class="summary-card"><div class="label">Outlets in view</div><div class="value">'+new Set(state.data.map(r=>r.outletId)).size+'</div></div>'
-      + '</div>';
-    const byOutlet = {};
-    for(const r of state.data){ (byOutlet[r.outletId]=byOutlet[r.outletId]||[]).push(r); }
+    const byOutletIng = {};
+    for(const r of (state.data||[])){ (byOutletIng[r.outletId]=byOutletIng[r.outletId]||[]).push(r); }
+    const byOutletProd = {};
+    for(const r of (state.productData||[])){ (byOutletProd[r.outletId]=byOutletProd[r.outletId]||[]).push(r); }
+
+    const allOutletIds = new Set(Object.keys(byOutletIng).concat(Object.keys(byOutletProd)));
     let groups = '';
-    for(const outletId in byOutlet){
-      const rows = byOutlet[outletId];
-      let trs = '';
-      for(const r of rows){
-        trs += '<tr><td class="name-col">'+escapeHtml(r.itemName)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>';
-      }
-      groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(rows[0].outletName)+'</div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Unit</th><th>Sold</th><th>Purchased</th><th>Stock Left</th></tr></thead><tbody>'+trs+'</tbody></table></div></div>';
+    for(const outletId of allOutletIds){
+      const ingRows = byOutletIng[outletId] || [];
+      const prodRows = byOutletProd[outletId] || [];
+      const outletName = (ingRows[0]||prodRows[0]).outletName;
+
+      let prodTrs = '';
+      for(const r of prodRows){ prodTrs += '<tr><td class="name-col">'+escapeHtml(r.label)+'</td><td>'+r.soldCount.toLocaleString()+'</td></tr>'; }
+      const prodTable = prodRows.length ? '<div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th></tr></thead><tbody>'+prodTrs+'</tbody></table></div>' : '';
+
+      let ingTrs = '';
+      for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
+      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
+
+      groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(outletName)+'</div>'+prodTable+ingTable+'</div>';
     }
-    resultsHtml = summary + groups;
+    resultsHtml = groups;
   }
 
   app.innerHTML = '<div class="admin-shell"><div class="admin-topbar"><div class="admin-title">Stock Dashboard</div></div>' + statusStrip + filters + resultsHtml + '</div>';
