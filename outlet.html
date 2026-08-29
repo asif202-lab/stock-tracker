@@ -110,6 +110,9 @@ tr:last-child td{border-bottom:none;}
 .spinner-text{color:var(--muted);font-size:13.5px;padding:30px;text-align:center;}
 @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
 
+.section-label{font-family:var(--font-display);font-size:15px;margin:22px 0 12px;color:var(--amber);}
+.section-label:first-child{margin-top:0;}
+.purchase-preview{color:var(--muted-2);font-size:11.5px;margin-top:6px;font-family:var(--font-mono);}
 </style>
 </head>
 <body>
@@ -136,9 +139,9 @@ let state = {
   outletId: null,
   outlet: null,
   brand: null,
-  items: [],
   today: todayStr(),
-  formValues: {},
+  purchaseValues: {},
+  saleValues: {},
   alreadySubmitted: false,
   error: '',
 };
@@ -178,23 +181,19 @@ async function submitLogin(){
     state.outletId = pin;
 
     const brandSnap = await db.ref('brands/'+state.outlet.brandId).once('value');
-    state.brand = brandSnap.val();
-    const brandItems = (state.brand && state.brand.items) ? state.brand.items : [];
-    if(brandItems.length===0){
-      state.error = 'No items set up for your brand yet. Ask admin to add items first.';
+    state.brand = brandSnap.val() || { ingredients: [], products: [] };
+    if((!state.brand.ingredients || state.brand.ingredients.length===0) && (!state.brand.products || state.brand.products.length===0)){
+      state.error = 'Nothing set up for your brand yet. Ask admin to add ingredients/products first.';
       state.screen='login'; render(); return;
     }
-    state.items = brandItems;
 
     const entrySnap = await db.ref('entries/'+pin+'/'+state.today).once('value');
-    state.formValues = {};
+    state.purchaseValues = {}; state.saleValues = {};
     state.alreadySubmitted = false;
     if(entrySnap.exists()){
       const existing = entrySnap.val();
-      for(const itemId in (existing.items||{})){
-        const v = existing.items[itemId];
-        state.formValues[itemId] = { sold: String(v.sold), purchased: String(v.purchased) };
-      }
+      for(const id in (existing.purchases||{})) state.purchaseValues[id] = String(existing.purchases[id]);
+      for(const id in (existing.sales||{})) state.saleValues[id] = String(existing.sales[id]);
       state.alreadySubmitted = true;
     }
     state.error = '';
@@ -207,41 +206,68 @@ async function submitLogin(){
   }
 }
 
-function updateFormValue(itemId, field, value){
-  if(!state.formValues[itemId]) state.formValues[itemId] = {sold:'', purchased:''};
-  state.formValues[itemId][field] = value;
-}
+function updatePurchase(id, value){ state.purchaseValues[id] = value; }
+function updateSale(id, value){ state.saleValues[id] = value; }
 
 function renderForm(){
-  let itemsHtml = '';
-  for(const item of state.items){
-    const v = state.formValues[item.id] || {sold:'', purchased:''};
-    itemsHtml += '<div class="item-card">'
-      + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(item.name)+'</span><span class="item-card-unit">'+escapeHtml(item.unit)+'</span></div>'
-      + '<div class="qty-row">'
-      + '<div class="qty-field"><label>Sold</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v.sold)+'" oninput="updateFormValue(\''+item.id+'\',\'sold\',this.value)"></div>'
-      + '<div class="qty-field"><label>Purchased</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v.purchased)+'" oninput="updateFormValue(\''+item.id+'\',\'purchased\',this.value)"></div>'
-      + '</div></div>';
+  const ingredients = state.brand.ingredients || [];
+  const products = state.brand.products || [];
+
+  let purchaseHtml = '';
+  if(ingredients.length>0){
+    purchaseHtml += '<div class="section-label">Purchases (Ingredients)</div>';
+    for(const ing of ingredients){
+      const v = state.purchaseValues[ing.id] || '';
+      const factor = ing.purchaseFactor || 1;
+      const preview = v ? '= ' + (Number(v)*factor).toLocaleString() + ' ' + ing.unit : '';
+      purchaseHtml += '<div class="item-card">'
+        + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(ing.name)+'</span><span class="item-card-unit">per '+escapeHtml(ing.purchaseUnit||ing.unit)+'</span></div>'
+        + '<div class="qty-field"><label>Purchased ('+escapeHtml(ing.purchaseUnit||ing.unit)+')</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v)+'" oninput="updatePurchase(\''+ing.id+'\',this.value);document.getElementById(\'prev_'+ing.id+'\').textContent=this.value?(\'= \'+(Number(this.value)*'+factor+').toLocaleString()+\' '+ing.unit+'\'):\'\'"></div>'
+        + '<div class="purchase-preview" id="prev_'+ing.id+'">'+preview+'</div>'
+        + '</div>';
+    }
   }
+
+  let salesHtml = '';
+  if(products.length>0){
+    salesHtml += '<div class="section-label">Sales (Sold Today)</div>';
+    for(const prod of products){
+      for(const variant of (prod.variants||[])){
+        const v = state.saleValues[variant.id] || '';
+        salesHtml += '<div class="item-card">'
+          + '<div class="item-card-head"><span class="item-card-name">'+escapeHtml(prod.name)+'</span><span class="item-card-unit">'+escapeHtml(variant.name)+'</span></div>'
+          + '<div class="qty-field"><label>Sold</label><input type="number" inputmode="decimal" min="0" value="'+escapeHtml(v)+'" oninput="updateSale(\''+variant.id+'\',this.value)"></div>'
+          + '</div>';
+      }
+    }
+  }
+
   return '<div class="outlet-shell">'
     + '<div class="outlet-topbar"><div><div class="outlet-name">'+escapeHtml(state.outlet.name)+'</div><div class="outlet-date">'+fmtDate(state.today)+'</div></div>'
     + '<button class="btn btn-ghost btn-small" onclick="logout()">Logout</button></div>'
     + (state.alreadySubmitted ? '<div class="banner">You already submitted today. Saving again will update your entry.</div>' : '')
     + (state.error ? '<div class="error-text">'+escapeHtml(state.error)+'</div>' : '')
-    + itemsHtml
+    + purchaseHtml + salesHtml
     + '<div class="submit-bar"><button class="btn btn-primary btn-large" onclick="submitEntry()">'+(state.alreadySubmitted ? 'Update Today\'s Entry' : 'Submit Today\'s Entry')+'</button></div>'
     + '</div>';
 }
 
 async function submitEntry(){
-  const items = {};
-  for(const item of state.items){
-    const v = state.formValues[item.id] || {};
-    items[item.id] = { sold: Number(v.sold)||0, purchased: Number(v.purchased)||0 };
+  const purchases = {};
+  for(const ing of (state.brand.ingredients||[])){
+    const v = state.purchaseValues[ing.id];
+    if(v!==undefined && v!=='') purchases[ing.id] = Number(v)||0;
+  }
+  const sales = {};
+  for(const prod of (state.brand.products||[])){
+    for(const variant of (prod.variants||[])){
+      const v = state.saleValues[variant.id];
+      if(v!==undefined && v!=='') sales[variant.id] = Number(v)||0;
+    }
   }
   state.screen='submitting'; render();
   try{
-    await db.ref('entries/'+state.outletId+'/'+state.today).set({ items, submittedAt: new Date().toISOString() });
+    await db.ref('entries/'+state.outletId+'/'+state.today).set({ purchases, sales, submittedAt: new Date().toISOString() });
     state.alreadySubmitted = true;
     state.screen = 'confirm';
   }catch(e){
@@ -263,7 +289,7 @@ function renderConfirm(){
 }
 
 function logout(){
-  state.outletId = null; state.outlet = null; state.brand = null; state.items = []; state.formValues = {}; state.error='';
+  state.outletId = null; state.outlet = null; state.brand = null; state.purchaseValues = {}; state.saleValues = {}; state.error='';
   state.screen = 'login';
   render();
 }
