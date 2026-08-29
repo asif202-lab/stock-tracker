@@ -307,8 +307,10 @@ async function saveNewIngredient(){
 }
 
 async function saveInlinePurchaseSize(brandId, ingredientId){
+  const suEl = document.getElementById('su_'+ingredientId);
   const puEl = document.getElementById('pu_'+ingredientId);
   const pfEl = document.getElementById('pf_'+ingredientId);
+  const unit = suEl.value;
   const purchaseUnit = puEl.value.trim();
   const purchaseFactorRaw = pfEl.value;
   if(!purchaseUnit || purchaseFactorRaw===''){
@@ -317,7 +319,7 @@ async function saveInlinePurchaseSize(brandId, ingredientId){
   }
   delete state.inlineErrors[ingredientId];
   const brand = state.brands[brandId];
-  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { purchaseUnit, purchaseFactor: Number(purchaseFactorRaw) }) : i);
+  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { unit, purchaseUnit, purchaseFactor: Number(purchaseFactorRaw) }) : i);
   try{
     await db.ref('brands/'+brandId+'/ingredients').set(ingredients);
     brand.ingredients = ingredients;
@@ -515,15 +517,17 @@ function renderBrandsTab(){
         const pu = ing.purchaseUnit || '';
         const pf = ing.purchaseFactor!=null ? ing.purchaseFactor : '';
         const err = state.inlineErrors[ing.id];
+        const uomOptions = ['g','kg','ml','ltr','pc'].map(u => '<option value="'+u+'" '+(ing.unit===u?'selected':'')+'>'+u+'</option>').join('');
         ingRows += '<div class="item-row" style="flex-direction:column;align-items:stretch;gap:8px;">'
-          + '<div style="display:flex;justify-content:space-between;align-items:center;"><div class="iname">'+escapeHtml(ing.name)+' <span class="imeta">tracked in '+escapeHtml(ing.unit)+'</span></div>'
-          + '<button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div>'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><div class="iname">'+escapeHtml(ing.name)+'</div>'
+          + '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;color:var(--muted);">Stock Unit</span><select class="inline-input" style="width:80px;" id="su_'+ing.id+'" onchange="document.getElementById(\'unitlbl_'+ing.id+'\').textContent=this.value">'+uomOptions+'</select>'
+          + '<button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>'
           + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-          + '<span style="font-size:12px;color:var(--muted);">1</span>'
+          + '<span style="font-size:12px;color:var(--muted);">Purchased as: 1</span>'
           + '<input class="inline-input" id="pu_'+ing.id+'" placeholder="e.g. Bottle" value="'+escapeHtml(pu)+'">'
           + '<span style="font-size:12px;color:var(--muted);">=</span>'
           + '<input class="inline-input" type="number" inputmode="decimal" id="pf_'+ing.id+'" placeholder="e.g. 750" value="'+pf+'" style="width:80px;">'
-          + '<span style="font-size:12px;color:var(--muted);">'+escapeHtml(ing.unit)+'</span>'
+          + '<span style="font-size:12px;color:var(--muted);" id="unitlbl_'+ing.id+'">'+escapeHtml(ing.unit)+'</span>'
           + '<button class="btn btn-small btn-primary" onclick="saveInlinePurchaseSize(\''+brandId+'\',\''+ing.id+'\')">Save</button>'
           + '</div>'
           + (err ? '<div class="error-text" style="margin:0;">'+escapeHtml(err)+'</div>' : '')
