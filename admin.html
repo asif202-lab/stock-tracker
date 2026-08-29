@@ -111,6 +111,8 @@ tr:last-child td{border-bottom:none;}
 .spinner-text{color:var(--muted);font-size:13.5px;padding:30px;text-align:center;}
 @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
 
+.modal-wide{max-width:560px;}
+.modal textarea{width:100%;min-height:220px;padding:11px 12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12.5px;font-family:var(--font-mono);}
 </style>
 </head>
 <body>
@@ -143,39 +145,34 @@ let state = {
   tab: 'dashboard',
   expandedOutletId: null,
   expandedBrandId: null,
+  expandedProductId: null,
   modal: null,
   today: todayStr(),
   filter: { outletId:'all', startDate: addDays(todayStr(),-6), endDate: todayStr() },
   data: null,
+  productData: null,
   loading: false,
   statusToday: new Set(),
 };
 
-function outletItems(outlet){
-  const brand = state.brands[outlet.brandId];
-  return (brand && brand.items) ? brand.items : [];
+function ingredientsOf(outlet){ const b = state.brands[outlet.brandId]; return (b && b.ingredients) ? b.ingredients : []; }
+function stockFor(outlet, ingredientId, createdAt){
+  const s = (outlet.itemStock && outlet.itemStock[ingredientId]) ? outlet.itemStock[ingredientId] : null;
+  return s || { opening: 0, baselineDate: createdAt || '2000-01-01' };
 }
-function itemStockFor(outlet, itemId, itemCreatedAt){
-  const s = (outlet.itemStock && outlet.itemStock[itemId]) ? outlet.itemStock[itemId] : null;
-  return s || { opening: 0, baselineDate: itemCreatedAt || '2000-01-01' };
+function variantIndex(brand){
+  const idx = {};
+  for(const prod of (brand.products||[])) for(const v of (prod.variants||[])) idx[v.id] = { productName: prod.name, variantName: v.name, recipe: v.recipe||[] };
+  return idx;
 }
 
 auth.onAuthStateChanged(function(user){
-  if(user){
-    state.screen = 'admin';
-    render();
-    loadAll().then(()=>{ refreshStatus(); loadData(); });
-  } else {
-    state.screen = 'login';
-    render();
-  }
+  if(user){ state.screen = 'admin'; render(); loadAll().then(()=>{ refreshStatus(); loadData(); }); }
+  else { state.screen = 'login'; render(); }
 });
 
 async function loadAll(){
-  const [configSnap, brandsSnap] = await Promise.all([
-    db.ref('config').once('value'),
-    db.ref('brands').once('value'),
-  ]);
+  const [configSnap, brandsSnap] = await Promise.all([ db.ref('config').once('value'), db.ref('brands').once('value') ]);
   state.config = configSnap.val() || {};
   state.brands = brandsSnap.val() || {};
   render();
@@ -185,12 +182,8 @@ async function submitLogin(){
   const email = document.getElementById('emailInput').value.trim();
   const pass = document.getElementById('passInput').value;
   state.loginError = '';
-  try{
-    await auth.signInWithEmailAndPassword(email, pass);
-  }catch(e){
-    state.loginError = 'Login failed. Check your email and password.';
-    render();
-  }
+  try{ await auth.signInWithEmailAndPassword(email, pass); }
+  catch(e){ state.loginError = 'Login failed. Check your email and password.'; render(); }
 }
 function logout(){ auth.signOut(); }
 
@@ -205,102 +198,162 @@ function setFilter(field, val){ state.filter[field] = val; }
 function setTab(tab){ state.tab = tab; render(); }
 
 async function loadData(){
-  state.loading = true; state.data = null; render();
+  state.loading = true; state.data = null; state.productData = null; render();
   const outletIds = state.filter.outletId==='all' ? Object.keys(state.config) : [state.filter.outletId];
-  const results = [];
+  const ingredientResults = [];
+  const productResults = [];
   for(const outletId of outletIds){
     const outlet = state.config[outletId];
     if(!outlet) continue;
-    const items = outletItems(outlet);
-    if(items.length===0) continue;
+    const brand = state.brands[outlet.brandId] || {ingredients:[],products:[]};
+    const ingredients = ingredientsOf(outlet);
+    if(ingredients.length===0 && (brand.products||[]).length===0) continue;
+    const vIdx = variantIndex(brand);
+
     let earliestBaseline = null;
-    for(const it of items){
-      const s = itemStockFor(outlet, it.id, it.createdAt);
+    for(const ing of ingredients){
+      const s = stockFor(outlet, ing.id, ing.createdAt);
       if(earliestBaseline===null || s.baselineDate < earliestBaseline) earliestBaseline = s.baselineDate;
     }
-    if(earliestBaseline===null) continue;
+    if(earliestBaseline===null) earliestBaseline = state.filter.startDate;
     const fetchStart = earliestBaseline < state.filter.startDate ? earliestBaseline : state.filter.startDate;
+
     const snap = await db.ref('entries/'+outletId).orderByKey().startAt(fetchStart).endAt(state.filter.endDate).once('value');
     const byDate = snap.val() || {};
-    const perItem = {};
-    for(const it of items) perItem[it.id] = {cumSold:0,cumPurchased:0,rangeSold:0,rangePurchased:0};
+
+    const ingAgg = {};
+    for(const ing of ingredients) ingAgg[ing.id] = {cumPurchased:0,cumSold:0,rangePurchased:0,rangeSold:0};
+    const prodAgg = {};
+
     for(const date in byDate){
-      const dayItems = byDate[date].items || {};
-      for(const itemId in dayItems){
-        const item = items.find(i=>i.id===itemId);
-        if(!item) continue;
-        const s = itemStockFor(outlet, itemId, item.createdAt);
-        if(date < s.baselineDate) continue;
-        const v = dayItems[itemId];
-        perItem[itemId].cumSold += v.sold||0;
-        perItem[itemId].cumPurchased += v.purchased||0;
-        if(date >= state.filter.startDate && date <= state.filter.endDate){
-          perItem[itemId].rangeSold += v.sold||0;
-          perItem[itemId].rangePurchased += v.purchased||0;
+      const day = byDate[date];
+      const inRange = date >= state.filter.startDate && date <= state.filter.endDate;
+      for(const ingId in (day.purchases||{})){
+        if(!ingAgg[ingId]) continue;
+        const factor = (ingredients.find(i=>i.id===ingId)||{}).purchaseFactor || 1;
+        const baseQty = (day.purchases[ingId]||0) * factor;
+        ingAgg[ingId].cumPurchased += baseQty;
+        if(inRange) ingAgg[ingId].rangePurchased += baseQty;
+      }
+      for(const variantId in (day.sales||{})){
+        const soldCount = day.sales[variantId]||0;
+        if(inRange) prodAgg[variantId] = (prodAgg[variantId]||0) + soldCount;
+        const info = vIdx[variantId];
+        if(!info) continue;
+        for(const line of info.recipe){
+          if(!ingAgg[line.ingredientId]) continue;
+          const deduct = soldCount * (line.qty||0);
+          ingAgg[line.ingredientId].cumSold += deduct;
+          if(inRange) ingAgg[line.ingredientId].rangeSold += deduct;
         }
       }
     }
-    for(const item of items){
-      const s = itemStockFor(outlet, item.id, item.createdAt);
-      const p = perItem[item.id];
-      results.push({
-        outletId, outletName: outlet.name, itemId: item.id, itemName: item.name, unit: item.unit,
-        opening: s.opening, baselineDate: s.baselineDate,
-        rangeSold: p.rangeSold, rangePurchased: p.rangePurchased,
-        stockLeft: s.opening + p.cumPurchased - p.cumSold,
-      });
+
+    for(const ing of ingredients){
+      const s = stockFor(outlet, ing.id, ing.createdAt);
+      const a = ingAgg[ing.id];
+      ingredientResults.push({ outletId, outletName: outlet.name, ingredientId: ing.id, name: ing.name, unit: ing.unit, opening: s.opening, baselineDate: s.baselineDate, rangePurchased: a.rangePurchased, rangeSold: a.rangeSold, stockLeft: s.opening + a.cumPurchased - a.cumSold });
+    }
+    for(const variantId in vIdx){
+      if(!prodAgg[variantId]) continue;
+      productResults.push({ outletId, outletName: outlet.name, label: vIdx[variantId].productName+' — '+vIdx[variantId].variantName, soldCount: prodAgg[variantId] });
     }
   }
-  state.data = results;
+  state.data = ingredientResults;
+  state.productData = productResults;
   state.loading = false;
   render();
 }
 
-/* ---- brands ---- */
+/* ---- brands / ingredients / products ---- */
 function openModal(m){ state.modal = m; render(); }
 function closeModal(){ state.modal = null; render(); }
 function setModalError(msg){ state.modal.error = msg; render(); }
 function toggleExpandBrand(id){ state.expandedBrandId = state.expandedBrandId===id ? null : id; render(); }
+function toggleExpandProduct(id){ state.expandedProductId = state.expandedProductId===id ? null : id; render(); }
 
 async function saveNewBrand(){
   const name = document.getElementById('m_brandName').value.trim();
   if(!name){ setModalError('Enter a brand name.'); return; }
   const id = genId();
-  try{
-    await db.ref('brands/'+id).set({ name, items: [] });
-    state.brands[id] = { name, items: [] };
-  }catch(e){ setModalError('Could not save. Try again.'); return; }
-  state.modal = null;
-  render();
+  try{ await db.ref('brands/'+id).set({ name, ingredients: [], products: [] }); state.brands[id] = { name, ingredients: [], products: [] }; }
+  catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; render();
 }
 
 async function deleteBrand(brandId){
   const outletsUsingBrand = Object.values(state.config).filter(o=>o.brandId===brandId);
-  if(outletsUsingBrand.length>0){
-    alert('Cannot delete: outlets are still using this brand.');
-    return;
-  }
+  if(outletsUsingBrand.length>0){ alert('Cannot delete: outlets are still using this brand.'); return; }
   try{ await db.ref('brands/'+brandId).remove(); delete state.brands[brandId]; }catch(e){}
   render();
 }
 
-async function saveNewBrandItem(){
+async function saveNewIngredient(){
   const brandId = state.modal.brandId;
   const brand = state.brands[brandId];
-  const name = document.getElementById('m_biName').value.trim();
-  const unit = document.getElementById('m_biUnit').value.trim() || 'units';
-  if(!name){ setModalError('Enter an item name.'); return; }
-  const items = (brand.items||[]).concat([{ id: genId(), name, unit, createdAt: todayStr() }]);
-  try{ await db.ref('brands/'+brandId+'/items').set(items); brand.items = items; }catch(e){ setModalError('Could not save. Try again.'); return; }
-  state.modal = null;
+  const name = document.getElementById('m_ingName').value.trim();
+  const unit = document.getElementById('m_ingUnit').value.trim() || 'unit';
+  const purchaseUnit = document.getElementById('m_ingPUnit').value.trim() || unit;
+  const purchaseFactor = Number(document.getElementById('m_ingFactor').value) || 1;
+  if(!name){ setModalError('Enter an ingredient name.'); return; }
+  const ingredients = (brand.ingredients||[]).concat([{ id: genId(), name, unit, purchaseUnit, purchaseFactor, createdAt: todayStr() }]);
+  try{ await db.ref('brands/'+brandId+'/ingredients').set(ingredients); brand.ingredients = ingredients; }
+  catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; render();
+}
+
+async function deleteIngredient(brandId, ingId){
+  const brand = state.brands[brandId];
+  const ingredients = (brand.ingredients||[]).filter(i=>i.id!==ingId);
+  try{ await db.ref('brands/'+brandId+'/ingredients').set(ingredients); brand.ingredients = ingredients; }catch(e){}
   render();
 }
 
-async function deleteBrandItem(brandId, itemId){
+async function deleteProduct(brandId, prodId){
   const brand = state.brands[brandId];
-  const items = (brand.items||[]).filter(i=>i.id!==itemId);
-  try{ await db.ref('brands/'+brandId+'/items').set(items); brand.items = items; }catch(e){}
+  const products = (brand.products||[]).filter(p=>p.id!==prodId);
+  try{ await db.ref('brands/'+brandId+'/products').set(products); brand.products = products; }catch(e){}
   render();
+}
+
+async function importBrandData(){
+  const brandId = state.modal.brandId;
+  const brand = state.brands[brandId];
+  let parsed;
+  try{ parsed = JSON.parse(document.getElementById('m_importJson').value); }
+  catch(e){ setModalError('That doesn\'t look like valid JSON.'); return; }
+
+  const ingredients = (brand.ingredients||[]).slice();
+  const nameToId = {};
+  for(const ing of ingredients) nameToId[ing.name.toLowerCase()] = ing.id;
+  for(const ing of (parsed.ingredients||[])){
+    const key = ing.name.toLowerCase();
+    if(!nameToId[key]){
+      const id = genId();
+      nameToId[key] = id;
+      ingredients.push({ id, name: ing.name, unit: ing.unit||'unit', purchaseUnit: ing.purchaseUnit||ing.unit||'unit', purchaseFactor: Number(ing.purchaseFactor)||1, createdAt: todayStr() });
+    }
+  }
+
+  const products = (brand.products||[]).slice();
+  const prodNameToIdx = {};
+  products.forEach((p,i)=>{ prodNameToIdx[p.name.toLowerCase()] = i; });
+  for(const prod of (parsed.products||[])){
+    const variants = (prod.variants||[]).map(v => ({
+      id: genId(), name: v.name,
+      recipe: (v.recipe||[]).map(r => ({ ingredientId: nameToId[(r.ingredient||'').toLowerCase()], qty: Number(r.qty)||0 })).filter(r=>r.ingredientId)
+    }));
+    const key = prod.name.toLowerCase();
+    if(prodNameToIdx[key]!==undefined) products[prodNameToIdx[key]] = { id: products[prodNameToIdx[key]].id, name: prod.name, variants };
+    else products.push({ id: genId(), name: prod.name, variants });
+  }
+
+  try{
+    await db.ref('brands/'+brandId+'/ingredients').set(ingredients);
+    await db.ref('brands/'+brandId+'/products').set(products);
+    brand.ingredients = ingredients; brand.products = products;
+  }catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; render();
 }
 
 /* ---- outlets ---- */
@@ -311,31 +364,26 @@ async function saveNewOutlet(){
   if(!name || !pin){ setModalError('Enter a name and PIN.'); return; }
   if(!brandId){ setModalError('Select a brand.'); return; }
   if(state.config[pin]){ setModalError('That PIN is already used by another outlet.'); return; }
-  try{
-    await db.ref('config/'+pin).set({ name, brandId, itemStock: {} });
-    state.config[pin] = { name, brandId, itemStock: {} };
-  }catch(e){ setModalError('Could not save. Try again.'); return; }
-  state.modal = null;
-  render();
+  try{ await db.ref('config/'+pin).set({ name, brandId, itemStock: {} }); state.config[pin] = { name, brandId, itemStock: {} }; }
+  catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; render();
 }
 
 async function deleteOutlet(outletId){
   try{ await db.ref('config/'+outletId).remove(); delete state.config[outletId]; }catch(e){}
   render();
 }
-
 function toggleExpandOutlet(id){ state.expandedOutletId = state.expandedOutletId===id ? null : id; render(); }
 
 async function saveStockTake(){
-  const { outletId, itemId } = state.modal;
+  const { outletId, ingredientId } = state.modal;
   const outlet = state.config[outletId];
   const counted = document.getElementById('m_countedStock').value;
   if(counted===''){ setModalError('Enter the counted stock.'); return; }
-  const itemStock = Object.assign({}, outlet.itemStock, { [itemId]: { opening: Number(counted)||0, baselineDate: todayStr() } });
-  try{ await db.ref('config/'+outletId+'/itemStock').set(itemStock); outlet.itemStock = itemStock; }catch(e){ setModalError('Could not save. Try again.'); return; }
-  state.modal = null;
-  state.data = null;
-  render();
+  const itemStock = Object.assign({}, outlet.itemStock, { [ingredientId]: { opening: Number(counted)||0, baselineDate: todayStr() } });
+  try{ await db.ref('config/'+outletId+'/itemStock').set(itemStock); outlet.itemStock = itemStock; }
+  catch(e){ setModalError('Could not save. Try again.'); return; }
+  state.modal = null; state.data = null; render();
 }
 
 /* ================= render ================= */
@@ -350,13 +398,11 @@ function render(){
 
 function renderLogin(){
   return '<div class="center-wrap"><div class="card">'
-    + '<h2>Admin Sign-in</h2>'
-    + '<p class="sub">Full access to setup and dashboard.</p>'
+    + '<h2>Admin Sign-in</h2><p class="sub">Full access to setup and dashboard.</p>'
     + '<input id="emailInput" class="text-input" type="email" placeholder="Email" autofocus>'
     + '<input id="passInput" class="text-input" type="password" placeholder="Password" onkeydown="if(event.key===\'Enter\')submitLogin()">'
     + (state.loginError ? '<div class="error-text">'+escapeHtml(state.loginError)+'</div>' : '')
-    + '<button class="btn btn-primary btn-large" onclick="submitLogin()">Sign in</button>'
-    + '</div></div>';
+    + '<button class="btn btn-primary btn-large" onclick="submitLogin()">Sign in</button></div></div>';
 }
 
 function renderAdmin(){
@@ -364,15 +410,13 @@ function renderAdmin(){
   if(state.tab==='dashboard') body = renderDashboardTab();
   else if(state.tab==='brands') body = renderBrandsTab();
   else if(state.tab==='manage') body = renderManageTab();
-
   return '<div class="admin-shell">'
     + '<div class="admin-topbar"><div class="admin-title">Ops Admin</div><button class="btn btn-ghost btn-small" onclick="logout()">Logout</button></div>'
     + '<div class="tabs">'
     + '<button class="tab-btn '+(state.tab==='dashboard'?'active':'')+'" onclick="setTab(\'dashboard\')">Dashboard</button>'
     + '<button class="tab-btn '+(state.tab==='brands'?'active':'')+'" onclick="setTab(\'brands\')">Brands</button>'
     + '<button class="tab-btn '+(state.tab==='manage'?'active':'')+'" onclick="setTab(\'manage\')">Outlets</button>'
-    + '</div>'
-    + body + '</div>';
+    + '</div>' + body + '</div>';
 }
 
 function renderDashboardTab(){
@@ -384,45 +428,35 @@ function renderDashboardTab(){
     const ok = state.statusToday.has(id);
     chips += '<span class="chip"><span class="dot '+(ok?'dot-ok':'dot-pending')+'"></span>'+escapeHtml(state.config[id].name)+'</span>';
   }
-  if(total===0) chips = '<span style="color:var(--muted-2);font-size:13px;">No outlets set up yet — add a brand, then an outlet.</span>';
-
+  if(total===0) chips = '<span style="color:var(--muted-2);font-size:13px;">No outlets set up yet.</span>';
   let outletOptions = '<option value="all">All Outlets</option>';
   for(const id of outletIds) outletOptions += '<option value="'+id+'" '+(state.filter.outletId===id?'selected':'')+'>'+escapeHtml(state.config[id].name)+'</option>';
-
   const statusStrip = '<div class="status-strip"><div class="status-strip-head"><span class="status-strip-title">Today\'s Submissions</span><span class="status-strip-count">'+submitted+' / '+total+'</span></div><div class="chip-row">'+chips+'</div></div>';
-
   const filters = '<div class="filters">'
     + '<div class="field"><label>Outlet</label><select onchange="setFilter(\'outletId\',this.value)">'+outletOptions+'</select></div>'
     + '<div class="field"><label>From</label><input type="date" value="'+state.filter.startDate+'" onchange="setFilter(\'startDate\',this.value)"></div>'
     + '<div class="field"><label>To</label><input type="date" value="'+state.filter.endDate+'" onchange="setFilter(\'endDate\',this.value)"></div>'
-    + '<div class="field apply-row"><button class="btn btn-primary btn-small" onclick="loadData()">Apply</button></div>'
-    + '</div>';
+    + '<div class="field apply-row"><button class="btn btn-primary btn-small" onclick="loadData()">Apply</button></div></div>';
 
   let resultsHtml = '';
-  if(state.loading){
-    resultsHtml = '<div class="spinner-text">Crunching the numbers…</div>';
-  } else if(!state.data || state.data.length===0){
-    resultsHtml = '<div class="empty-state">No data for this selection yet.</div>';
-  } else {
-    let totalSold=0, totalPurchased=0;
-    for(const r of state.data){ totalSold += r.rangeSold; totalPurchased += r.rangePurchased; }
-    const summary = '<div class="summary-cards">'
-      + '<div class="summary-card"><div class="label">Total Sold</div><div class="value">'+totalSold.toLocaleString()+'</div></div>'
-      + '<div class="summary-card"><div class="label">Total Purchased</div><div class="value">'+totalPurchased.toLocaleString()+'</div></div>'
-      + '<div class="summary-card"><div class="label">Outlets in view</div><div class="value">'+new Set(state.data.map(r=>r.outletId)).size+'</div></div>'
-      + '</div>';
-    const byOutlet = {};
-    for(const r of state.data){ (byOutlet[r.outletId]=byOutlet[r.outletId]||[]).push(r); }
+  if(state.loading){ resultsHtml = '<div class="spinner-text">Crunching the numbers…</div>'; }
+  else if((!state.data || state.data.length===0) && (!state.productData || state.productData.length===0)){ resultsHtml = '<div class="empty-state">No data for this selection yet.</div>'; }
+  else {
+    const byOutletIng = {}; for(const r of (state.data||[])){ (byOutletIng[r.outletId]=byOutletIng[r.outletId]||[]).push(r); }
+    const byOutletProd = {}; for(const r of (state.productData||[])){ (byOutletProd[r.outletId]=byOutletProd[r.outletId]||[]).push(r); }
+    const allOutletIds = new Set(Object.keys(byOutletIng).concat(Object.keys(byOutletProd)));
     let groups = '';
-    for(const outletId in byOutlet){
-      const rows = byOutlet[outletId];
-      let trs = '';
-      for(const r of rows){
-        trs += '<tr><td class="name-col">'+escapeHtml(r.itemName)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>';
-      }
-      groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(rows[0].outletName)+'</div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Unit</th><th>Sold</th><th>Purchased</th><th>Stock Left</th></tr></thead><tbody>'+trs+'</tbody></table></div></div>';
+    for(const outletId of allOutletIds){
+      const ingRows = byOutletIng[outletId] || [];
+      const prodRows = byOutletProd[outletId] || [];
+      const outletName = (ingRows[0]||prodRows[0]).outletName;
+      let prodTrs = ''; for(const r of prodRows){ prodTrs += '<tr><td class="name-col">'+escapeHtml(r.label)+'</td><td>'+r.soldCount.toLocaleString()+'</td></tr>'; }
+      const prodTable = prodRows.length ? '<div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th></tr></thead><tbody>'+prodTrs+'</tbody></table></div>' : '';
+      let ingTrs = ''; for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
+      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
+      groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(outletName)+'</div>'+prodTable+ingTable+'</div>';
     }
-    resultsHtml = summary + groups;
+    resultsHtml = groups;
   }
   return statusStrip + filters + resultsHtml;
 }
@@ -434,26 +468,44 @@ function renderBrandsTab(){
   for(const brandId of ids){
     const brand = state.brands[brandId];
     const expanded = state.expandedBrandId===brandId;
-    let itemsHtml = '';
+    let inner = '';
     if(expanded){
-      let rows = '';
-      for(const item of (brand.items||[])){
-        rows += '<div class="item-row"><div><div class="iname">'+escapeHtml(item.name)+'</div><div class="imeta">'+escapeHtml(item.unit)+'</div></div>'
-          + '<div class="item-row-actions"><button class="btn btn-small btn-danger" onclick="deleteBrandItem(\''+brandId+'\',\''+item.id+'\')">Delete</button></div></div>';
+      let ingRows = '';
+      for(const ing of (brand.ingredients||[])){
+        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">'+escapeHtml(ing.unit)+' · 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit)+'</div></div>'
+          + '<div class="item-row-actions"><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
       }
-      if(!brand.items || brand.items.length===0) rows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No items yet.</div>';
-      itemsHtml = '<div class="items-panel">'+rows+'<div style="margin-top:12px;"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'addBrandItem\',brandId:\''+brandId+'\'})">+ Add Item</button></div></div>';
+      if(!brand.ingredients || brand.ingredients.length===0) ingRows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No ingredients yet.</div>';
+
+      let prodRows = '';
+      for(const prod of (brand.products||[])){
+        const pExpanded = state.expandedProductId===prod.id;
+        let variantLines = '';
+        if(pExpanded){
+          for(const v of (prod.variants||[])){
+            const lines = (v.recipe||[]).map(r=>{ const ing=(brand.ingredients||[]).find(i=>i.id===r.ingredientId); return (ing?ing.name:'?')+' '+r.qty+(ing?ing.unit:''); }).join(', ');
+            variantLines += '<div style="padding:6px 0;font-size:12.5px;color:var(--muted);"><b style="color:var(--text);">'+escapeHtml(v.name)+'</b> — '+escapeHtml(lines)+'</div>';
+          }
+        }
+        prodRows += '<div class="item-row" style="flex-direction:column;align-items:stretch;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;width:100%;"><div><div class="iname">'+escapeHtml(prod.name)+'</div><div class="imeta">'+(prod.variants?prod.variants.length:0)+' variants</div></div>'
+          + '<div class="item-row-actions"><button class="btn btn-small btn-ghost" onclick="toggleExpandProduct(\''+prod.id+'\')">'+(pExpanded?'Hide':'View Recipe')+'</button><button class="btn btn-small btn-danger" onclick="deleteProduct(\''+brandId+'\',\''+prod.id+'\')">Delete</button></div></div>'
+          + variantLines + '</div>';
+      }
+      if(!brand.products || brand.products.length===0) prodRows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No products yet.</div>';
+
+      inner = '<div class="items-panel">'
+        + '<div class="section-title" style="font-size:13px;">Ingredients</div>' + ingRows
+        + '<div style="margin:10px 0;"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'addIngredient\',brandId:\''+brandId+'\'})">+ Add Ingredient</button></div>'
+        + '<div class="section-title" style="font-size:13px;margin-top:16px;">Products &amp; Recipes</div>' + prodRows
+        + '<div style="margin-top:10px;"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'importJson\',brandId:\''+brandId+'\'})">Import Recipes (JSON)</button></div>'
+        + '</div>';
     }
     const outletCount = Object.values(state.config).filter(o=>o.brandId===brandId).length;
-    cards += '<div class="outlet-card">'
-      + '<div class="outlet-card-head"><div class="outlet-card-info"><div class="name">'+escapeHtml(brand.name)+'</div><div class="meta">'+(brand.items?brand.items.length:0)+' items · '+outletCount+' outlets</div></div>'
-      + '<div class="outlet-card-actions">'
-      + '<button class="btn btn-small" onclick="toggleExpandBrand(\''+brandId+'\')">'+(expanded?'Hide Items':'Manage Items')+'</button>'
-      + '<button class="btn btn-small btn-danger" onclick="deleteBrand(\''+brandId+'\')">Delete Brand</button>'
-      + '</div></div>' + itemsHtml + '</div>';
+    cards += '<div class="outlet-card"><div class="outlet-card-head"><div class="outlet-card-info"><div class="name">'+escapeHtml(brand.name)+'</div><div class="meta">'+(brand.ingredients?brand.ingredients.length:0)+' ingredients · '+(brand.products?brand.products.length:0)+' products · '+outletCount+' outlets</div></div>'
+      + '<div class="outlet-card-actions"><button class="btn btn-small" onclick="toggleExpandBrand(\''+brandId+'\')">'+(expanded?'Hide':'Manage')+'</button><button class="btn btn-small btn-danger" onclick="deleteBrand(\''+brandId+'\')">Delete Brand</button></div></div>' + inner + '</div>';
   }
-  return '<h2 class="section-title">Brands</h2>' + cards
-    + '<button class="btn btn-primary btn-small" style="margin-top:6px;" onclick="openModal({type:\'addBrand\'})">+ Add Brand</button>';
+  return '<h2 class="section-title">Brands</h2>' + cards + '<button class="btn btn-primary btn-small" style="margin-top:6px;" onclick="openModal({type:\'addBrand\'})">+ Add Brand</button>';
 }
 
 function renderManageTab(){
@@ -464,45 +516,47 @@ function renderManageTab(){
     const outlet = state.config[outletId];
     const brand = state.brands[outlet.brandId];
     const expanded = state.expandedOutletId===outletId;
-    const items = outletItems(outlet);
+    const ingredients = ingredientsOf(outlet);
     let itemsHtml = '';
     if(expanded){
       let rows = '';
-      for(const item of items){
-        const s = itemStockFor(outlet, item.id, item.createdAt);
-        rows += '<div class="item-row"><div><div class="iname">'+escapeHtml(item.name)+'</div><div class="imeta">'+escapeHtml(item.unit)+' · opening '+s.opening+' since '+fmtDate(s.baselineDate)+'</div></div>'
-          + '<div class="item-row-actions"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'stockTake\',outletId:\''+outletId+'\',itemId:\''+item.id+'\'})">Stock Take</button></div></div>';
+      for(const ing of ingredients){
+        const s = stockFor(outlet, ing.id, ing.createdAt);
+        rows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">'+escapeHtml(ing.unit)+' · opening '+s.opening+' since '+fmtDate(s.baselineDate)+'</div></div>'
+          + '<div class="item-row-actions"><button class="btn btn-small btn-ghost" onclick="openModal({type:\'stockTake\',outletId:\''+outletId+'\',ingredientId:\''+ing.id+'\'})">Stock Take</button></div></div>';
       }
-      if(items.length===0) rows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">This brand has no items yet.</div>';
+      if(ingredients.length===0) rows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">This brand has no ingredients yet.</div>';
       itemsHtml = '<div class="items-panel">'+rows+'</div>';
     }
-    outletCards += '<div class="outlet-card">'
-      + '<div class="outlet-card-head"><div class="outlet-card-info"><div class="name">'+escapeHtml(outlet.name)+'</div><div class="meta">'+escapeHtml(brand?brand.name:'(missing brand)')+' · PIN '+escapeHtml(outletId)+'</div></div>'
-      + '<div class="outlet-card-actions">'
-      + '<button class="btn btn-small" onclick="toggleExpandOutlet(\''+outletId+'\')">'+(expanded?'Hide Stock':'View Stock')+'</button>'
-      + '<button class="btn btn-small btn-danger" onclick="deleteOutlet(\''+outletId+'\')">Delete Outlet</button>'
-      + '</div></div>' + itemsHtml + '</div>';
+    outletCards += '<div class="outlet-card"><div class="outlet-card-head"><div class="outlet-card-info"><div class="name">'+escapeHtml(outlet.name)+'</div><div class="meta">'+escapeHtml(brand?brand.name:'(missing brand)')+' · PIN '+escapeHtml(outletId)+'</div></div>'
+      + '<div class="outlet-card-actions"><button class="btn btn-small" onclick="toggleExpandOutlet(\''+outletId+'\')">'+(expanded?'Hide Stock':'View Stock')+'</button><button class="btn btn-small btn-danger" onclick="deleteOutlet(\''+outletId+'\')">Delete Outlet</button></div></div>' + itemsHtml + '</div>';
   }
-  let brandOptions = '<option value="">Select a brand…</option>';
-  for(const id in state.brands) brandOptions += '<option value="'+id+'">'+escapeHtml(state.brands[id].name)+'</option>';
-  return '<h2 class="section-title">Outlets</h2>' + outletCards
-    + '<button class="btn btn-primary btn-small" style="margin-top:6px;" onclick="openModal({type:\'addOutlet\'})">+ Add Outlet</button>';
+  return '<h2 class="section-title">Outlets</h2>' + outletCards + '<button class="btn btn-primary btn-small" style="margin-top:6px;" onclick="openModal({type:\'addOutlet\'})">+ Add Outlet</button>';
 }
 
 function renderModal(){
   const m = state.modal;
   let inner = '';
+  let wide = false;
   if(m.type==='addBrand'){
-    inner = '<h2>Add Brand</h2><p class="sub">Outlets you assign to this brand will share its item list.</p>'
-      + '<div class="form-field"><label>Brand Name</label><input id="m_brandName" type="text" placeholder="e.g. Cafe Express"></div>'
+    inner = '<h2>Add Brand</h2><p class="sub">Outlets you assign to this brand will share its ingredients and products.</p>'
+      + '<div class="form-field"><label>Brand Name</label><input id="m_brandName" type="text" placeholder="e.g. LBKK"></div>'
       + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
       + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNewBrand()">Add Brand</button></div>';
-  } else if(m.type==='addBrandItem'){
-    inner = '<h2>Add Item to Brand</h2><p class="sub">Every outlet under this brand will get this item automatically.</p>'
-      + '<div class="form-field"><label>Item Name</label><input id="m_biName" type="text" placeholder="e.g. Chicken Burger"></div>'
-      + '<div class="form-field"><label>Unit</label><input id="m_biUnit" type="text" placeholder="e.g. pcs, kg, ltr"></div>'
+  } else if(m.type==='addIngredient'){
+    inner = '<h2>Add Ingredient</h2><p class="sub">Set the purchase conversion so outlets can enter purchases in the unit they actually buy in.</p>'
+      + '<div class="form-field"><label>Ingredient Name</label><input id="m_ingName" type="text" placeholder="e.g. Vanilla Ice Cream"></div>'
+      + '<div class="form-field"><label>Stock Unit</label><input id="m_ingUnit" type="text" placeholder="e.g. kg, ml, g, pc"></div>'
+      + '<div class="form-field"><label>Purchase Unit</label><input id="m_ingPUnit" type="text" placeholder="e.g. Tub, Bottle, Box"></div>'
+      + '<div class="form-field"><label>1 Purchase Unit = how many Stock Units</label><input id="m_ingFactor" type="number" inputmode="decimal" placeholder="e.g. 4.5"></div>'
       + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
-      + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNewBrandItem()">Add Item</button></div>';
+      + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNewIngredient()">Add Ingredient</button></div>';
+  } else if(m.type==='importJson'){
+    wide = true;
+    inner = '<h2>Import Recipes</h2><p class="sub">Paste the JSON Claude generates from your recipe sheet. This adds new ingredients/products and updates existing ones by matching names.</p>'
+      + '<textarea id="m_importJson" placeholder=\'{"ingredients":[...],"products":[...]}\'></textarea>'
+      + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
+      + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="importBrandData()">Import</button></div>';
   } else if(m.type==='addOutlet'){
     let brandOptions = '<option value="">Select a brand…</option>';
     for(const id in state.brands) brandOptions += '<option value="'+id+'">'+escapeHtml(state.brands[id].name)+'</option>';
@@ -518,7 +572,7 @@ function renderModal(){
       + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
       + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveStockTake()">Save</button></div>';
   }
-  return '<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">'+inner+'</div></div>';
+  return '<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal'+(wide?' modal-wide':'')+'">'+inner+'</div></div>';
 }
 
 render();
