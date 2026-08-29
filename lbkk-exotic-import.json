@@ -1,21 +1,21 @@
 {
   "ingredients": [
-    {"name":"Passion Fruit","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
-    {"name":"Passion Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Lime Wedge","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
-    {"name":"Sugar Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Soda","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Lemongrass Concentrate","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Lime Juice","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Mint Leaves","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
-    {"name":"Frozen Strwbry Fruit","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
-    {"name":"Strwbry Puree","unit":"g","purchaseUnit":"Tub","purchaseFactor":1000},
-    {"name":"Lemongrass Juice","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Kaffir Lime Leaves","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
-    {"name":"Thai Tea","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Evaporated Milk","unit":"ml","purchaseUnit":"Can","purchaseFactor":410},
-    {"name":"Apple Elderflower Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
-    {"name":"Butterfly Pea Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000}
+    {"name":"Passion Fruit","unit":"pc"},
+    {"name":"Passion Syrup","unit":"ml"},
+    {"name":"Lime Wedge","unit":"pc"},
+    {"name":"Sugar Syrup","unit":"ml"},
+    {"name":"Soda","unit":"ml"},
+    {"name":"Lemongrass Concentrate","unit":"ml"},
+    {"name":"Lime Juice","unit":"ml"},
+    {"name":"Mint Leaves","unit":"pc"},
+    {"name":"Frozen Strwbry Fruit","unit":"pc"},
+    {"name":"Strwbry Puree","unit":"g"},
+    {"name":"Lemongrass Juice","unit":"ml"},
+    {"name":"Kaffir Lime Leaves","unit":"pc"},
+    {"name":"Thai Tea","unit":"ml"},
+    {"name":"Evaporated Milk","unit":"ml"},
+    {"name":"Apple Elderflower Syrup","unit":"ml"},
+    {"name":"Butterfly Pea Syrup","unit":"ml"}
   ],
   "products": [
     {"name":"Love Island","variants":[
