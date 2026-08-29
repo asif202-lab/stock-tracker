@@ -114,6 +114,8 @@ tr:last-child td{border-bottom:none;}
 .modal-wide{max-width:560px;}
 .modal textarea{width:100%;min-height:220px;padding:11px 12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12.5px;font-family:var(--font-mono);}
 .ingredient-qty{font-family:var(--font-mono);color:var(--text);}
+.inline-input{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;width:110px;}
+.inline-input:focus{border-color:var(--amber);}
 </style>
 </head>
 <body>
@@ -154,6 +156,7 @@ let state = {
   productData: null,
   loading: false,
   statusToday: new Set(),
+  inlineErrors: {},
 };
 
 function ingredientsOf(outlet){ const b = state.brands[outlet.brandId]; return (b && b.ingredients) ? b.ingredients : []; }
@@ -301,6 +304,26 @@ async function saveNewIngredient(){
   try{ await db.ref('brands/'+brandId+'/ingredients').set(ingredients); brand.ingredients = ingredients; }
   catch(e){ setModalError('Could not save. Try again.'); return; }
   state.modal = null; render();
+}
+
+async function saveInlinePurchaseSize(brandId, ingredientId){
+  const puEl = document.getElementById('pu_'+ingredientId);
+  const pfEl = document.getElementById('pf_'+ingredientId);
+  const purchaseUnit = puEl.value.trim();
+  const purchaseFactorRaw = pfEl.value;
+  if(!purchaseUnit || purchaseFactorRaw===''){
+    state.inlineErrors[ingredientId] = 'Enter both the unit name and the quantity.';
+    render(); return;
+  }
+  delete state.inlineErrors[ingredientId];
+  const brand = state.brands[brandId];
+  const ingredients = (brand.ingredients||[]).map(i => i.id===ingredientId ? Object.assign({}, i, { purchaseUnit, purchaseFactor: Number(purchaseFactorRaw) }) : i);
+  try{
+    await db.ref('brands/'+brandId+'/ingredients').set(ingredients);
+    brand.ingredients = ingredients;
+    state.data = null;
+  }catch(e){ state.inlineErrors[ingredientId] = 'Could not save. Try again.'; }
+  render();
 }
 
 async function saveEditIngredient(){
@@ -489,12 +512,22 @@ function renderBrandsTab(){
     if(expanded){
       let ingRows = '';
       for(const ing of (brand.ingredients||[])){
-        const notSet = !ing.purchaseUnit || ing.purchaseFactor==null;
-        const metaLine = notSet
-          ? '<span style="color:var(--rust);">Purchase size not set</span>'
-          : 'tracked in '+escapeHtml(ing.unit)+' · bought as 1 '+escapeHtml(ing.purchaseUnit)+' = '+ing.purchaseFactor+' '+escapeHtml(ing.unit);
-        ingRows += '<div class="item-row"><div><div class="iname">'+escapeHtml(ing.name)+'</div><div class="imeta">'+metaLine+'</div></div>'
-          + '<div class="item-row-actions"><button class="btn btn-small '+(notSet?'btn-primary':'btn-ghost')+'" onclick="openModal({type:\'editIngredient\',brandId:\''+brandId+'\',ingredientId:\''+ing.id+'\',name:\''+escapeHtml(ing.name)+'\',unit:\''+escapeHtml(ing.unit)+'\',purchaseUnit:\''+escapeHtml(ing.purchaseUnit||'')+'\',purchaseFactor:\''+(ing.purchaseFactor!=null?ing.purchaseFactor:'')+'\'})">'+(notSet?'Set Purchase Size':'Edit')+'</button><button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div></div>';
+        const pu = ing.purchaseUnit || '';
+        const pf = ing.purchaseFactor!=null ? ing.purchaseFactor : '';
+        const err = state.inlineErrors[ing.id];
+        ingRows += '<div class="item-row" style="flex-direction:column;align-items:stretch;gap:8px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;"><div class="iname">'+escapeHtml(ing.name)+' <span class="imeta">tracked in '+escapeHtml(ing.unit)+'</span></div>'
+          + '<button class="btn btn-small btn-danger" onclick="deleteIngredient(\''+brandId+'\',\''+ing.id+'\')">Delete</button></div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+          + '<span style="font-size:12px;color:var(--muted);">1</span>'
+          + '<input class="inline-input" id="pu_'+ing.id+'" placeholder="e.g. Bottle" value="'+escapeHtml(pu)+'">'
+          + '<span style="font-size:12px;color:var(--muted);">=</span>'
+          + '<input class="inline-input" type="number" inputmode="decimal" id="pf_'+ing.id+'" placeholder="e.g. 750" value="'+pf+'" style="width:80px;">'
+          + '<span style="font-size:12px;color:var(--muted);">'+escapeHtml(ing.unit)+'</span>'
+          + '<button class="btn btn-small btn-primary" onclick="saveInlinePurchaseSize(\''+brandId+'\',\''+ing.id+'\')">Save</button>'
+          + '</div>'
+          + (err ? '<div class="error-text" style="margin:0;">'+escapeHtml(err)+'</div>' : '')
+          + '</div>';
       }
       if(!brand.ingredients || brand.ingredients.length===0) ingRows = '<div style="color:var(--muted-2);font-size:13px;padding:6px 0;">No ingredients yet.</div>';
 
@@ -576,14 +609,6 @@ function renderModal(){
       + '<div class="form-field"><label>1 Purchase Unit = how many Stock Units</label><input id="m_ingFactor" type="number" inputmode="decimal" placeholder="e.g. 4.5"></div>'
       + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
       + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNewIngredient()">Add Ingredient</button></div>';
-  } else if(m.type==='editIngredient'){
-    inner = '<h2>Edit Ingredient</h2><p class="sub">Fix the actual size you buy this in \u2014 e.g. if a bottle is really 750ml, change it here.</p>'
-      + '<div class="form-field"><label>Ingredient Name</label><input id="m_ingName" type="text" value="'+m.name+'"></div>'
-      + '<div class="form-field"><label>Stock Unit</label><input id="m_ingUnit" type="text" value="'+m.unit+'"></div>'
-      + '<div class="form-field"><label>Purchase Unit</label><input id="m_ingPUnit" type="text" value="'+m.purchaseUnit+'"></div>'
-      + '<div class="form-field"><label>1 Purchase Unit = how many Stock Units</label><input id="m_ingFactor" type="number" inputmode="decimal" value="'+m.purchaseFactor+'"></div>'
-      + (m.error ? '<div class="error-text">'+escapeHtml(m.error)+'</div>' : '')
-      + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEditIngredient()">Save Changes</button></div>';
   } else if(m.type==='importJson'){
     wide = true;
     inner = '<h2>Import Recipes</h2><p class="sub">Paste the JSON Claude generates from your recipe sheet. This adds new ingredients/products and updates existing ones by matching names.</p>'
