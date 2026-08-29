@@ -1,0 +1,47 @@
+{
+  "ingredients": [
+    {"name":"Passion Fruit","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
+    {"name":"Passion Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Lime Wedge","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
+    {"name":"Sugar Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Soda","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Lemongrass Concentrate","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Lime Juice","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Mint Leaves","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
+    {"name":"Frozen Strwbry Fruit","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
+    {"name":"Strwbry Puree","unit":"g","purchaseUnit":"Tub","purchaseFactor":1000},
+    {"name":"Lemongrass Juice","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Kaffir Lime Leaves","unit":"pc","purchaseUnit":"pc","purchaseFactor":1},
+    {"name":"Thai Tea","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Evaporated Milk","unit":"ml","purchaseUnit":"Can","purchaseFactor":410},
+    {"name":"Apple Elderflower Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000},
+    {"name":"Butterfly Pea Syrup","unit":"ml","purchaseUnit":"Bottle","purchaseFactor":1000}
+  ],
+  "products": [
+    {"name":"Love Island","variants":[
+      {"name":"Glass","recipe":[{"ingredient":"Passion Fruit","qty":0.5},{"ingredient":"Passion Syrup","qty":15},{"ingredient":"Lime Wedge","qty":1},{"ingredient":"Sugar Syrup","qty":30},{"ingredient":"Soda","qty":180},{"ingredient":"Lemongrass Concentrate","qty":15},{"ingredient":"Lime Juice","qty":15},{"ingredient":"Mint Leaves","qty":4}]},
+      {"name":"Jug","recipe":[{"ingredient":"Passion Fruit","qty":1},{"ingredient":"Passion Syrup","qty":30},{"ingredient":"Lime Wedge","qty":2},{"ingredient":"Sugar Syrup","qty":60},{"ingredient":"Soda","qty":360},{"ingredient":"Lemongrass Concentrate","qty":30},{"ingredient":"Lime Juice","qty":30},{"ingredient":"Mint Leaves","qty":8}]},
+      {"name":"Delivery","recipe":[{"ingredient":"Passion Fruit","qty":0.5},{"ingredient":"Passion Syrup","qty":25},{"ingredient":"Lime Wedge","qty":2},{"ingredient":"Sugar Syrup","qty":50},{"ingredient":"Soda","qty":300},{"ingredient":"Lemongrass Concentrate","qty":25},{"ingredient":"Lime Juice","qty":25},{"ingredient":"Mint Leaves","qty":5}]}
+    ]},
+    {"name":"Ratchada","variants":[
+      {"name":"Glass","recipe":[{"ingredient":"Frozen Strwbry Fruit","qty":1},{"ingredient":"Strwbry Puree","qty":15},{"ingredient":"Lime Wedge","qty":1},{"ingredient":"Mint Leaves","qty":2},{"ingredient":"Sugar Syrup","qty":60},{"ingredient":"Soda","qty":150},{"ingredient":"Lime Juice","qty":20}]},
+      {"name":"Jug","recipe":[{"ingredient":"Frozen Strwbry Fruit","qty":2},{"ingredient":"Strwbry Puree","qty":30},{"ingredient":"Lime Wedge","qty":2},{"ingredient":"Mint Leaves","qty":4},{"ingredient":"Sugar Syrup","qty":120},{"ingredient":"Soda","qty":300},{"ingredient":"Lime Juice","qty":40}]},
+      {"name":"Delivery","recipe":[{"ingredient":"Frozen Strwbry Fruit","qty":1.5},{"ingredient":"Strwbry Puree","qty":25},{"ingredient":"Lime Wedge","qty":2},{"ingredient":"Mint Leaves","qty":3},{"ingredient":"Sugar Syrup","qty":100},{"ingredient":"Soda","qty":255},{"ingredient":"Lime Juice","qty":35}]}
+    ]},
+    {"name":"Tom Yam Cooler","variants":[
+      {"name":"Glass","recipe":[{"ingredient":"Lime Wedge","qty":3},{"ingredient":"Lemongrass Juice","qty":210},{"ingredient":"Lemongrass Concentrate","qty":45},{"ingredient":"Kaffir Lime Leaves","qty":4}]},
+      {"name":"Jug","recipe":[{"ingredient":"Lime Wedge","qty":6},{"ingredient":"Lemongrass Juice","qty":420},{"ingredient":"Lemongrass Concentrate","qty":90},{"ingredient":"Kaffir Lime Leaves","qty":6}]},
+      {"name":"Delivery","recipe":[{"ingredient":"Lime Wedge","qty":5},{"ingredient":"Lemongrass Juice","qty":360},{"ingredient":"Lemongrass Concentrate","qty":75},{"ingredient":"Kaffir Lime Leaves","qty":6}]}
+    ]},
+    {"name":"Cha Nom Yen","variants":[
+      {"name":"Glass","recipe":[{"ingredient":"Thai Tea","qty":190},{"ingredient":"Evaporated Milk","qty":65}]},
+      {"name":"Jug","recipe":[{"ingredient":"Thai Tea","qty":380},{"ingredient":"Evaporated Milk","qty":130}]},
+      {"name":"Delivery","recipe":[{"ingredient":"Thai Tea","qty":325},{"ingredient":"Evaporated Milk","qty":110}]}
+    ]},
+    {"name":"Butterfly Pea Soda","variants":[
+      {"name":"Glass","recipe":[{"ingredient":"Apple Elderflower Syrup","qty":75},{"ingredient":"Butterfly Pea Syrup","qty":10},{"ingredient":"Lime Wedge","qty":2},{"ingredient":"Mint Leaves","qty":6},{"ingredient":"Soda","qty":140},{"ingredient":"Sugar Syrup","qty":10}]},
+      {"name":"Jug","recipe":[{"ingredient":"Apple Elderflower Syrup","qty":150},{"ingredient":"Butterfly Pea Syrup","qty":20},{"ingredient":"Lime Wedge","qty":4},{"ingredient":"Mint Leaves","qty":8},{"ingredient":"Soda","qty":280},{"ingredient":"Sugar Syrup","qty":20}]},
+      {"name":"Delivery","recipe":[{"ingredient":"Apple Elderflower Syrup","qty":110},{"ingredient":"Butterfly Pea Syrup","qty":15},{"ingredient":"Lime Wedge","qty":3},{"ingredient":"Mint Leaves","qty":6},{"ingredient":"Soda","qty":210},{"ingredient":"Sugar Syrup","qty":15}]}
+    ]}
+  ]
+}
