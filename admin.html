@@ -151,7 +151,7 @@ let state = {
   expandedProductId: null,
   modal: null,
   today: todayStr(),
-  filter: { outletId:'all', startDate: addDays(todayStr(),-6), endDate: todayStr() },
+  filter: { outletId:'all', startDate: todayStr().slice(0,8)+'01', endDate: todayStr() },
   data: null,
   productData: null,
   loading: false,
@@ -258,7 +258,8 @@ async function loadData(){
     for(const ing of ingredients){
       const s = stockFor(outlet, ing.id, ing.createdAt);
       const a = ingAgg[ing.id];
-      ingredientResults.push({ outletId, outletName: outlet.name, ingredientId: ing.id, name: ing.name, unit: ing.unit, opening: s.opening, baselineDate: s.baselineDate, rangePurchased: a.rangePurchased, rangeSold: a.rangeSold, stockLeft: s.opening + a.cumPurchased - a.cumSold });
+      const periodOpening = s.opening + (a.cumPurchased - a.rangePurchased) - (a.cumSold - a.rangeSold);
+      ingredientResults.push({ outletId, outletName: outlet.name, ingredientId: ing.id, name: ing.name, unit: ing.unit, periodOpening, rangePurchased: a.rangePurchased, rangeSold: a.rangeSold, stockLeft: s.opening + a.cumPurchased - a.cumSold });
     }
     for(const variantId in vIdx){
       if(!prodAgg[variantId]) continue;
@@ -385,14 +386,20 @@ async function importBrandData(){
 
   const ingredients = (brand.ingredients||[]).slice();
   const nameToId = {};
-  for(const ing of ingredients) nameToId[ing.name.toLowerCase()] = ing.id;
+  ingredients.forEach((ing,idx) => { nameToId[ing.name.toLowerCase()] = idx; });
   for(const ing of (parsed.ingredients||[])){
     const key = ing.name.toLowerCase();
-    if(!nameToId[key]){
-      const id = genId();
-      nameToId[key] = id;
-      ingredients.push({ id, name: ing.name, unit: ing.unit||'unit', purchaseUnit: ing.purchaseUnit || null, purchaseFactor: (ing.purchaseFactor!=null ? Number(ing.purchaseFactor) : null), createdAt: todayStr() });
+    if(nameToId[key]===undefined){
+      const idx = ingredients.length;
+      ingredients.push({ id: genId(), name: ing.name, unit: ing.unit||'unit', purchaseUnit: null, purchaseFactor: null, recipeUnit: null, recipeUnitFactor: null, createdAt: todayStr() });
+      nameToId[key] = idx;
     }
+    const existing = ingredients[nameToId[key]];
+    const updated = Object.assign({}, existing);
+    if(ing.unit) updated.unit = ing.unit;
+    if(ing.purchaseUnit && ing.purchaseFactor!=null){ updated.purchaseUnit = ing.purchaseUnit; updated.purchaseFactor = Number(ing.purchaseFactor); }
+    if(ing.recipeUnit && ing.recipeUnitFactor!=null){ updated.recipeUnit = ing.recipeUnit; updated.recipeUnitFactor = Number(ing.recipeUnitFactor); }
+    ingredients[nameToId[key]] = updated;
   }
 
   const products = (brand.products||[]).slice();
@@ -401,7 +408,11 @@ async function importBrandData(){
   for(const prod of (parsed.products||[])){
     const variants = (prod.variants||[]).map(v => ({
       id: genId(), name: v.name,
-      recipe: (v.recipe||[]).map(r => ({ ingredientId: nameToId[(r.ingredient||'').toLowerCase()], qty: Number(r.qty)||0 })).filter(r=>r.ingredientId)
+      recipe: (v.recipe||[]).map(r => {
+        const idx = nameToId[(r.ingredient||'').toLowerCase()];
+        const ingredientId = idx!==undefined ? ingredients[idx].id : undefined;
+        return { ingredientId, qty: Number(r.qty)||0 };
+      }).filter(r=>r.ingredientId)
     }));
     const key = prod.name.toLowerCase();
     if(prodNameToIdx[key]!==undefined) products[prodNameToIdx[key]] = { id: products[prodNameToIdx[key]].id, name: prod.name, variants };
@@ -512,8 +523,8 @@ function renderDashboardTab(){
       const outletName = (ingRows[0]||prodRows[0]).outletName;
       let prodTrs = ''; for(const r of prodRows){ prodTrs += '<tr><td class="name-col">'+escapeHtml(r.label)+'</td><td>'+r.soldCount.toLocaleString()+'</td></tr>'; }
       const prodTable = prodRows.length ? '<div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th></tr></thead><tbody>'+prodTrs+'</tbody></table></div>' : '';
-      let ingTrs = ''; for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
-      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
+      let ingTrs = ''; for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.periodOpening.toLocaleString()+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
+      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Opening</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
       groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(outletName)+'</div>'+prodTable+ingTable+'</div>';
     }
     resultsHtml = groups;
