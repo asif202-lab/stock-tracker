@@ -136,7 +136,7 @@ let state = {
   config: {},
   brands: {},
   today: todayStr(),
-  filter: { outletId:'all', startDate: addDays(todayStr(),-6), endDate: todayStr() },
+  filter: { outletId:'all', startDate: todayStr().slice(0,8)+'01', endDate: todayStr() },
   data: null,
   statusToday: new Set(),
 };
@@ -240,10 +240,10 @@ async function loadData(){
     for(const ing of ingredients){
       const s = stockFor(outlet, ing.id, ing.createdAt);
       const a = ingAgg[ing.id];
+      const periodOpening = s.opening + (a.cumPurchased - a.rangePurchased) - (a.cumSold - a.rangeSold);
       ingredientResults.push({
         outletId, outletName: outlet.name, ingredientId: ing.id, name: ing.name, unit: ing.unit,
-        opening: s.opening, baselineDate: s.baselineDate,
-        rangePurchased: a.rangePurchased, rangeSold: a.rangeSold,
+        periodOpening, rangePurchased: a.rangePurchased, rangeSold: a.rangeSold,
         stockLeft: s.opening + a.cumPurchased - a.cumSold,
       });
     }
@@ -307,8 +307,8 @@ function render(){
       const prodTable = prodRows.length ? '<div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th></tr></thead><tbody>'+prodTrs+'</tbody></table></div>' : '';
 
       let ingTrs = '';
-      for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
-      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
+      for(const r of ingRows){ ingTrs += '<tr><td class="name-col">'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+r.periodOpening.toLocaleString()+'</td><td>'+r.rangePurchased.toLocaleString()+'</td><td>'+r.rangeSold.toLocaleString()+'</td><td class="'+(r.stockLeft<0?'stock-neg':'')+'">'+r.stockLeft.toLocaleString()+'</td></tr>'; }
+      const ingTable = ingRows.length ? '<div class="table-wrap"><table><thead><tr><th>Ingredient</th><th>Unit</th><th>Opening</th><th>Purchased</th><th>Depleted</th><th>Stock Left</th></tr></thead><tbody>'+ingTrs+'</tbody></table></div>' : '';
 
       groups += '<div class="outlet-group"><div class="outlet-group-head">'+escapeHtml(outletName)+'</div>'+prodTable+ingTable+'</div>';
     }
